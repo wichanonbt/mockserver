@@ -131,6 +131,17 @@ public class DashboardHandlerTest {
         assertThat(contentType, equalTo("application/octet-stream"));
     }
 
+    @Test
+    public void spaNavigationPathsResolveToIndexHtml() {
+        assertThat(DashboardHandler.dashboardResourcePath(""), is("/index.html"));
+        assertThat(DashboardHandler.dashboardResourcePath("/"), is("/index.html"));
+        assertThat(DashboardHandler.dashboardResourcePath("/manage"), is("/index.html"));
+        assertThat(DashboardHandler.dashboardResourcePath("/manage/"), is("/index.html"));
+        assertThat(DashboardHandler.dashboardResourcePath("manage"), is("/index.html"));
+        assertThat(DashboardHandler.dashboardResourcePath("/assets/index-abc.js"), is("/assets/index-abc.js"));
+        assertThat(DashboardHandler.dashboardResourcePath("/favicon.svg"), is("/favicon.svg"));
+    }
+
     private HttpResponse renderDashboardResource(String resourceSuffix) throws Exception {
         ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
         ChannelFuture channelFuture = mock(ChannelFuture.class);

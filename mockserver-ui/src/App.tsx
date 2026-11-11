@@ -7,6 +7,7 @@ import Alert from '@mui/material/Alert';
 import AlertTitle from '@mui/material/AlertTitle';
 import Snackbar from '@mui/material/Snackbar';
 import { useDashboardStore, coerceView, ALL_VIEWS } from './store';
+import { operatorDashboardRequested } from './lib/dashboardRoute';
 import { buildTheme } from './theme';
 import { useConnectionParams } from './hooks/useConnectionParams';
 import { useWebSocket } from './hooks/useWebSocket';
@@ -81,6 +82,7 @@ const ClusterPanel = lazy(() => import('./components/ClusterPanel'));
 const ScenarioPanel = lazy(() => import('./components/ScenarioPanel'));
 // Audit trail view (GET /mockserver/audit) — read-only control-plane mutation log.
 const AuditPanel = lazy(() => import('./components/AuditPanel'));
+const MockManagementView = lazy(() => import('./components/MockManagementView'));
 
 // How long the WebSocket must stay down before the persistent connection-loss
 // banner appears. Brief reconnects (the common case under StrictMode remount or
@@ -173,17 +175,26 @@ export default function App() {
   // Keep the active view in sync with the URL hash so browser back/forward and
   // manually-edited deep links (e.g. `#/contract`) navigate the dashboard. The
   // store's own setView writes the hash; here we react to externally-driven hash
-  // changes. Invalid hashes are ignored (coerceView returns null).
+  // changes. Invalid hashes are ignored (coerceView returns null). The same
+  // listener flips the catalog / operator-console shell when the hash or path
+  // changes (setView writes the hash, which is how "open in mocks editor" leaves
+  // the catalog).
   const setView = useDashboardStore((s) => s.setView);
+  const [operatorConsole, setOperatorConsole] = useState(operatorDashboardRequested);
   useEffect(() => {
-    const onHashChange = () => {
+    const onLocationChange = () => {
       const next = coerceView(globalThis.location?.hash?.replace(/^#\/?/, '') ?? '');
       if (next && next !== useDashboardStore.getState().view) {
         setView(next);
       }
+      setOperatorConsole(operatorDashboardRequested());
     };
-    globalThis.addEventListener?.('hashchange', onHashChange);
-    return () => globalThis.removeEventListener?.('hashchange', onHashChange);
+    globalThis.addEventListener?.('hashchange', onLocationChange);
+    globalThis.addEventListener?.('popstate', onLocationChange);
+    return () => {
+      globalThis.removeEventListener?.('hashchange', onLocationChange);
+      globalThis.removeEventListener?.('popstate', onLocationChange);
+    };
   }, [setView]);
 
   // Fetch the server configuration once at startup and hand it to the analytics
@@ -282,6 +293,43 @@ export default function App() {
   const handleClearExpectations = useCallback(async () => {
     await clearServer('expectations');
   }, [clearServer]);
+
+  const notificationSnack = (
+        <Snackbar
+          open={notification !== null}
+          autoHideDuration={4000}
+          onClose={() => setNotification(null)}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        >
+          {notification ? (
+            <Alert
+              severity={notification.severity}
+              variant="filled"
+              role="alert"
+              onClose={() => setNotification(null)}
+              sx={{ width: '100%' }}
+            >
+              {notification.message}
+            </Alert>
+          ) : undefined}
+        </Snackbar>
+  );
+
+  if (!operatorConsole) {
+    return (
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
+          <ErrorBoundary label="this view" resetKeys={['catalog']}>
+            <Suspense fallback={<Box sx={{ p: 2 }}>Loading…</Box>}>
+              <MockManagementView connectionParams={params} />
+            </Suspense>
+          </ErrorBoundary>
+        </Box>
+        {notificationSnack}
+      </ThemeProvider>
+    );
+  }
 
   return (
     <ThemeProvider theme={theme}>
@@ -471,24 +519,7 @@ export default function App() {
             )}
           </ErrorBoundary>
         </Box>
-        <Snackbar
-          open={notification !== null}
-          autoHideDuration={4000}
-          onClose={() => setNotification(null)}
-          anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-        >
-          {notification ? (
-            <Alert
-              severity={notification.severity}
-              variant="filled"
-              role="alert"
-              onClose={() => setNotification(null)}
-              sx={{ width: '100%' }}
-            >
-              {notification.message}
-            </Alert>
-          ) : undefined}
-        </Snackbar>
+        {notificationSnack}
         <DebugMismatchDialog key={`debug-${targetKey}`} connectionParams={params} />
         <GenerateStubDialog
           key={`stub-${targetKey}`}

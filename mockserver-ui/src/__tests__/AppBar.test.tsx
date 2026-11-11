@@ -5,6 +5,7 @@ import { ThemeProvider } from '@mui/material/styles';
 import { buildTheme } from '../theme';
 import AppBar, { NAV_TAB_DESCRIPTIONS } from '../components/AppBar';
 import { useDashboardStore, type ViewMode } from '../store';
+import { mockCatalogHref } from '../lib/dashboardRoute';
 import * as http3StatusModule from '../lib/http3Status';
 
 function renderAppBar(overrides = {}) {
@@ -37,6 +38,12 @@ describe('AppBar', () => {
   it('displays the MockServer title', () => {
     renderAppBar();
     expect(screen.getByText('MockServer')).toBeInTheDocument();
+  });
+
+  it('links home to the mock catalog', () => {
+    renderAppBar();
+    const link = screen.getByRole('link', { name: 'Mock catalog' });
+    expect(link).toHaveAttribute('href', mockCatalogHref());
   });
 
   it('shows connection status chip', () => {

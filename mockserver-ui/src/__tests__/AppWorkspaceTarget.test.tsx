@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act, waitFor } from '@testing-library/react';
 import { useDashboardStore } from '../store';
 
@@ -50,6 +50,7 @@ const lastKeptTargets = () => [...(release.mock.lastCall?.[0] ?? [])].sort();
 describe('App on a workspace target change', () => {
   beforeEach(() => {
     onboardingMounts.mockClear();
+    globalThis.location.hash = '#/get-started';
     useDashboardStore.setState({
       view: 'get-started',
       connection: null,
@@ -120,4 +121,5 @@ describe('App on a workspace target change', () => {
       globalThis.history.replaceState(null, '', original);
     }
   });
+  afterEach(() => { globalThis.location.hash = ''; });
 });

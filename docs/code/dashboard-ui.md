@@ -245,7 +245,9 @@ When `resetKeys` changes (the user navigates to another tab), the boundary clear
 
 ## Top-Level Views
 
-The dashboard has **twenty-one top-level views** controlled by the AppBar. The view state is stored in Zustand as `view: ViewMode` where:
+Opening `GET /mockserver/dashboard` (no hash) shows the **mock catalog** (`MockManagementView`): grouped services, endpoints, scenarios, and a proxy-or-mock fallback. After you open an endpoint, **Try It** reuses `LiveResponseWidget` (the same widget as the Mocks composer) to fire a live request derived from the selected scenario. Creating a mock from **New API Mock** opens that endpoint with Try It already shown. The previous AppBar operator console lives at `GET /mockserver/dashboard/manage`. `DashboardHandler` serves `index.html` for extension-less paths under `/dashboard`, so `/manage` is a SPA route of the same bundle. Existing `#/<view>` deep links (`#/traffic`, `#/composer`, …) still open the operator console.
+
+The operator console has **twenty-one top-level views** controlled by the AppBar. The view state is stored in Zustand as `view: ViewMode` where:
 
 ```
 ViewMode = 'dashboard' | 'traffic' | 'sessions' | 'composer' | 'library'
@@ -255,9 +257,9 @@ ViewMode = 'dashboard' | 'traffic' | 'sessions' | 'composer' | 'library'
          | 'scenarios' | 'audit'
 ```
 
-`'composer'` is surfaced in the UI under the button label **Mocks**; `'async'` is the **AsyncAPI** broker view; `'performance'` is the **Performance** load-scenario panel; `'sessions'` is labelled **Trace** in the nav; `'get-started'` is the initial onboarding view shown to new users before any data arrives; `'scenarios'` is a standalone view over the same `ScenarioPanel` that the Mocks composer embeds as a tab; `'audit'` renders the control-plane audit trail from `GET /mockserver/audit` (see [Audit View](#audit-view)). The audit trail is a record of **control-plane mutations** — who changed what (`PUT /expectation`, `/clear`, `/reset`, configuration changes, etc.) with principal, source, and authorization outcome. It is a **separate, additional trail from the data-plane event log** (received requests, responses, and expectation matches) — the two never overlap. The audit trail is **opt-in and off by default** — the server records an `AuditEntry` for a control-plane operation only when `controlPlaneAuditEnabled=true` (recording is gated purely on that flag in `HttpState.recordAudit`; it is independent of whether control-plane authentication is configured, and an unauthenticated mutation is recorded with principal `anonymous`/source `none`). Reads are skipped unless `controlPlaneAuditReads=true` (a `FORBIDDEN` outcome is always recorded, even for a read). Request headers and bodies are never stored — only the mutation metadata.
+`'composer'` is surfaced in the UI under the button label **Mocks**; `'async'` is the **AsyncAPI** broker view; `'performance'` is the **Performance** load-scenario panel; `'sessions'` is labelled **Trace** in the nav; `'get-started'` is the operator-console onboarding view; `'scenarios'` is a standalone view over the same `ScenarioPanel` that the Mocks composer embeds as a tab; `'audit'` renders the control-plane audit trail from `GET /mockserver/audit` (see [Audit View](#audit-view)). The audit trail is a record of **control-plane mutations** — who changed what (`PUT /expectation`, `/clear`, `/reset`, configuration changes, etc.) with principal, source, and authorization outcome. It is a **separate, additional trail from the data-plane event log** (received requests, responses, and expectation matches) — the two never overlap. The audit trail is **opt-in and off by default** — the server records an `AuditEntry` for a control-plane operation only when `controlPlaneAuditEnabled=true` (recording is gated purely on that flag in `HttpState.recordAudit`; it is independent of whether control-plane authentication is configured, and an unauthenticated mutation is recorded with principal `anonymous`/source `none`). Reads are skipped unless `controlPlaneAuditReads=true` (a `FORBIDDEN` outcome is always recorded, even for a read). Request headers and bodies are never stored — only the mutation metadata.
 
-The active view and per-panel search terms persist across page reloads: the view is mirrored in the URL hash (`#/<view>`) and in `localStorage`, resolved at startup by `coerceView`/`persistView` in `store/index.ts`; per-panel search terms are stored under a separate `localStorage` key. Unknown or stale values are silently ignored and fall back to `'get-started'`.
+The operator console's active view and per-panel search terms persist across page reloads: the view is mirrored in the URL hash (`#/<view>`) and in `localStorage`, resolved at startup by `coerceView`/`persistView` in `store/index.ts`; per-panel search terms are stored under a separate `localStorage` key. Unknown or stale values are silently ignored and fall back to `'get-started'`. A visit to `/mockserver/dashboard` with no hash always shows the catalog, even if a view is persisted.
 
 ### Workspaces
 
@@ -334,7 +336,7 @@ The Request Filter panel is shown on Dashboard, Traffic, and Trace views. It is 
 
 | View | Nav label | Component | Description |
 |------|-----------|-----------|-------------|
-| `get-started` | Get Started | `OnboardingPanel.tsx` | Onboarding view shown on first load; stays until the user navigates away (no auto-switch) |
+| `get-started` | Get Started | `OnboardingPanel.tsx` | Operator-console onboarding; stays until the user navigates away (no auto-switch) |
 | `dashboard` | Dashboard | `DashboardGrid.tsx` | 2×2 grid of Log Messages, Active Expectations, Received Requests, Proxied Requests panels |
 | `traffic` | Traffic | `TrafficInspector.tsx` | Full-width master/detail list of all captured traffic (mock-matched + proxied), with per-row Replay and Compare buttons |
 | `sessions` | Trace | `SessionInspector.tsx` | Swim-lane grouped view of isolated LLM conversation sessions; labelled **Trace** in the nav |
@@ -357,8 +359,8 @@ The Request Filter panel is shown on Dashboard, Traffic, and Trace views. It is 
 ```mermaid
 graph TB
     APP["App.tsx"]
-    AB["AppBar.tsx
-grouped nav: 6 dropdown groups"]
+    MMV["MockManagementView.tsx\nGET /mockserver/dashboard"]
+    AB["AppBar.tsx\ngrouped nav: 6 dropdown groups\nGET /mockserver/dashboard/manage"]
     FP["FilterPanel.tsx
 (dashboard, traffic, sessions only)"]
     GS["OnboardingPanel.tsx
@@ -400,7 +402,8 @@ grouped nav: 6 dropdown groups"]
     BP["BreakpointsPanel.tsx
 (view = 'breakpoints')"]
 
-    APP --> AB
+    APP -->|no hash| MMV
+    APP -->|/manage or hash view| AB
     APP --> FP
     AB -->|setView| APP
     APP -->|view = get-started| GS
@@ -1034,7 +1037,7 @@ See [docs/code/breakpoints.md](breakpoints.md) for the server-side architecture 
 
 ## Get-Started / Onboarding View
 
-`OnboardingPanel.tsx` (view = `get-started`) is the initial landing view. The Zustand store starts with `view: 'get-started'` and **stays there** — `applyMessage` never changes the view, so incoming data does not bounce the user to the dashboard. The user navigates away themselves via the AppBar. (A reset returns the view to `get-started`.)
+`OnboardingPanel.tsx` (view = `get-started`) is the operator console's first-visit view. The URL landing page is the mock catalog; `get-started` is what the AppBar console opens on when nothing is persisted. The Zustand store starts with `view: 'get-started'` and **stays there** — `applyMessage` never changes the view, so incoming data does not bounce the user off it. The user navigates away themselves via the AppBar. (A reset returns the view to `get-started`.)
 
 ## Traffic View: Replay and Compare
 

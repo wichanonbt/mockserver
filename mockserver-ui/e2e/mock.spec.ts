@@ -137,6 +137,15 @@ async function startUpstream(): Promise<{ port: number; seen: string[]; close: (
 // Navigation + Get Started
 // ---------------------------------------------------------------------------
 
+test('the dashboard root is the mock catalog and /manage is the operator console', async ({ page }) => {
+  await page.goto('./');
+  await expect(page.getByRole('heading', { name: 'Central Dashboard' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Mock views' })).toHaveCount(0);
+  await page.goto('./manage');
+  await expect(page.getByRole('button', { name: 'Mock views' })).toBeVisible();
+  await expect(page.getByText('connected', { exact: true })).toBeVisible();
+});
+
 test('Mock menu lists its five views and each one opens', async ({ page }) => {
   await gotoView(page, 'dashboard');
   const views: Array<[string, string, RegExp]> = [

@@ -38,9 +38,11 @@ function setStatus(status: 'connected' | 'disconnected' | 'error' | 'connecting'
 describe('App connection-loss banner', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    globalThis.location.hash = '#/get-started';
     useDashboardStore.setState({ connectionStatus: 'connected', view: 'get-started', error: null });
   });
   afterEach(() => {
+    globalThis.location.hash = '';
     vi.runOnlyPendingTimers();
     vi.useRealTimers();
   });

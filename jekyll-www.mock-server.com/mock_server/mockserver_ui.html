@@ -8,10 +8,10 @@ subsection: true
 sitemap:
   priority: 0.7
   changefreq: 'monthly'
-  lastmod: 2026-06-22T00:00:00+01:00
+  lastmod: 2026-11-11T00:00:00+00:00
 ---
 
-<p>MockServer has a real-time dashboard that gives you full visibility into what MockServer is doing. The following views are available from the navigation bar at the top of the page:</p>
+<p>MockServer has a real-time dashboard that gives you full visibility into what MockServer is doing. The mock catalog at <code class="inline code">/mockserver/dashboard</code> is the landing page. Open <code class="inline code">/mockserver/dashboard/manage</code> (or any <code class="inline code">#/&lt;view&gt;</code> link) for the operator console; the following views are available from its navigation bar:</p>
 
 <ul>
     <li><strong><a href="#ui_get_started_section">Get Started</a></strong> — guided first-run view: import an OpenAPI spec, set up a proxy, try a quick-start recipe, or browse the docs</li>
@@ -52,6 +52,8 @@ sitemap:
 
 <p>For example, if MockServer is running on <strong>localhost</strong> on port <strong>1080</strong>:</p>
 <p><strong>http://localhost:1080/mockserver/dashboard</strong></p>
+
+<p>That URL is the mock catalog: group endpoints into services, edit each scenario, and use <strong>Try It</strong> on an endpoint to send a live request against the mock. Creating a mock from <strong>New API Mock</strong> opens it with Try It already shown. The previous dashboard (live logs, traffic, the mocks composer, and the rest of the navigation bar) is at <strong>http://localhost:1080/mockserver/dashboard/manage</strong>. Bookmarks that already use a view hash, such as <code class="inline code">#/traffic</code>, still open that older dashboard.</p>
 
 <p>The dashboard works as-is at <code>localhost</code>, an IP address, a single-word name such as a Docker or Compose service name, or a name ending in <code>.svc</code>, <code>.svc.cluster.local</code> or <code>.internal</code>. At any other name, for example a shared environment's host name or the Kubernetes <code>service.namespace</code> short form, MockServer refuses its API and live log calls with 403 (this protects against DNS rebinding) unless you list the dashboard's address in <code>controlPlaneCorsAllowOrigin</code> or add the name's private suffix to <code>controlPlaneTrustedHostSuffixes</code>. See <a href="/mock_server/CORS_support.html#browser_origins">which web pages can use MockServer's own API</a>.</p>
 
@@ -207,7 +209,7 @@ sitemap:
 
 <h2>Get Started</h2>
 
-<p>The <strong>Get Started</strong> view is the first screen you see. It presents six action cards covering the key things MockServer does — open any one to jump straight in, or use the navigation tabs above for the full feature set:</p>
+<p>The <strong>Get Started</strong> view is the first screen of the operator console at <code class="inline code">/mockserver/dashboard/manage</code>. It presents six action cards covering the key things MockServer does — open any one to jump straight in, or use the navigation tabs above for the full feature set:</p>
 
 <img class="ui_image" src="/images/MockServerGetStarted.png" alt="MockServer Get Started">
 

@@ -26,6 +26,7 @@ import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import LayersClearIcon from '@mui/icons-material/LayersClear';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
+import HomeIcon from '@mui/icons-material/Home';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import TrafficIcon from '@mui/icons-material/Traffic';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
@@ -61,6 +62,7 @@ import UploadFileIcon from '@mui/icons-material/UploadFile';
 import DownloadIcon from '@mui/icons-material/Download';
 import { useState, useEffect, useCallback } from 'react';
 import { useDashboardStore, type ViewMode } from '../store';
+import { mockCatalogHref } from '../lib/dashboardRoute';
 import type { ConnectionStatus } from '../types';
 import { useConnectionParams } from '../hooks/useConnectionParams';
 import { usePolling } from '../hooks/usePolling';
@@ -449,6 +451,16 @@ export default function AppBar({ onClearServer, onClearLogs, onClearExpectations
         <Typography variant="h6" sx={{ fontWeight: 700, fontSize: '0.9rem' }}>
           MockServer
         </Typography>
+        <Tooltip title="Mock catalog">
+          <IconButton
+            color="inherit"
+            size="small"
+            href={mockCatalogHref()}
+            aria-label="Mock catalog"
+          >
+            <HomeIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
         <Tooltip title={`MockServer at ${serverUrl}`}>
           <Chip
             label={connectionStatus}

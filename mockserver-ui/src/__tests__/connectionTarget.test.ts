@@ -167,6 +167,13 @@ describe('resolveUrlConnection', () => {
     expect(urlConnectionParams().basePath).toBe('');
   });
 
+  it('strips /manage from the dashboard path when deriving the base path', () => {
+    at('', '/mockserver/dashboard/manage');
+    expect(urlConnectionParams().basePath).toBe('');
+    at('', '/ctx/mockserver/dashboard/manage');
+    expect(urlConnectionParams().basePath).toBe('/ctx');
+  });
+
   it.each([
     ['?basePath=/mockserver/reset%23', 'basePath'],
     ['?basePath=/mockserver/stop%23', 'basePath'],

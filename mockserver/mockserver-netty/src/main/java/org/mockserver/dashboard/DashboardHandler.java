@@ -53,17 +53,41 @@ public class DashboardHandler {
     // be rejected by Netty's header encoder (NullPointerException), failing the response.
     private static final String DEFAULT_MIME_TYPE = "application/octet-stream";
 
+    /**
+     * Map the URL path after {@code /dashboard} onto a classpath resource. Empty
+     * paths and extension-less SPA routes (for example {@code /manage}) serve
+     * {@code index.html}; asset paths keep their suffix.
+     */
+    static String dashboardResourcePath(String pathAfterDashboard) {
+        if (pathAfterDashboard == null) {
+            return "/index.html";
+        }
+        String path = pathAfterDashboard;
+        while (path.endsWith("/")) {
+            path = path.substring(0, path.length() - 1);
+        }
+        if (path.isEmpty()) {
+            return "/index.html";
+        }
+        if (!path.startsWith("/")) {
+            path = "/" + path;
+        }
+        String last = path.substring(path.lastIndexOf('/') + 1);
+        if (!last.contains(".")) {
+            return "/index.html";
+        }
+        return path;
+    }
+
     public void renderDashboard(final ChannelHandlerContext ctx, final HttpRequest request) throws Exception {
         HttpResponse response = notFoundResponse();
         if (request.getMethod().getValue().equals("GET")) {
             String path = substringAfter(request.getPath().getValue(), PATH_PREFIX + "/dashboard");
-            if (path.isEmpty() || path.equals("/")) {
-                path = "/index.html";
-            }
             if (path.contains("..")) {
                 ctx.writeAndFlush(notFoundResponse().withStreamId(request.getStreamId())).addListener(ChannelFutureListener.CLOSE);
                 return;
             }
+            path = dashboardResourcePath(path);
             String resourcePath = "/org/mockserver/dashboard" + path;
             String normalizedPath = java.net.URI.create(resourcePath).normalize().getPath();
             if (!normalizedPath.startsWith("/org/mockserver/dashboard/") && !normalizedPath.equals("/org/mockserver/dashboard")) {

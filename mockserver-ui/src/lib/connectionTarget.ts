@@ -68,9 +68,10 @@ export function resolveUrlConnection(): UrlConnection {
   const secureParam = params.get('secure');
   const secure = secureParam !== null ? secureParam === 'true' : pageSecure;
 
-  // The page's own base path is the segment before a trailing /mockserver/dashboard; without that
-  // suffix the dashboard is assumed to be at the root.
-  const pathMatch = /^(.*)\/mockserver\/dashboard\/?$/.exec(location.pathname ?? '');
+  // The page's own base path is the segment before a trailing /mockserver/dashboard
+  // (or /mockserver/dashboard/manage for the operator console); without that suffix
+  // the dashboard is assumed to be at the root.
+  const pathMatch = /^(.*)\/mockserver\/dashboard(?:\/manage)?\/?$/.exec(location.pathname ?? '');
   const pageBasePath = normaliseBasePath(pathMatch ? (pathMatch[1] ?? '') : '');
   const basePathParam = params.get('basePath');
   const validPageBasePath = basePathProblem(pageBasePath) === null ? pageBasePath : '';

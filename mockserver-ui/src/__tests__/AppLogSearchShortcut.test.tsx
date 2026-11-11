@@ -35,13 +35,16 @@ function logSearchField(): HTMLElement {
 describe('Cmd/Ctrl+K', () => {
   beforeEach(() => {
     resetLogSearchFocus();
+    globalThis.location.hash = '#/get-started';
     useDashboardStore.setState({ connectionStatus: 'connected', error: null, logMessages: [], logSearch: '' });
   });
   afterEach(() => {
+    globalThis.location.hash = '';
     cleanup();
   });
 
   it('focuses the Log Messages search field on the Dashboard', async () => {
+    globalThis.location.hash = '#/dashboard';
     useDashboardStore.setState({ view: 'dashboard' });
     render(<App />);
     const field = await waitFor(() => logSearchField());
@@ -52,6 +55,7 @@ describe('Cmd/Ctrl+K', () => {
   });
 
   it('works with Cmd on macOS too', async () => {
+    globalThis.location.hash = '#/dashboard';
     useDashboardStore.setState({ view: 'dashboard' });
     render(<App />);
     const field = await waitFor(() => logSearchField());

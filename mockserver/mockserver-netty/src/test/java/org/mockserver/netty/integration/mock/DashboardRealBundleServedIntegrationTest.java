@@ -136,6 +136,22 @@ public class DashboardRealBundleServedIntegrationTest {
             asset.getBodyAsString().length(), is(greaterThan(0)));
     }
 
+    @Test
+    public void spaFallbackServesIndexHtmlForManagePath() throws Exception {
+        HttpResponse index = send("GET", DASHBOARD_PATH);
+        boolean served = index.getStatusCode() != null && index.getStatusCode() == 200;
+        if (Boolean.getBoolean(BUNDLE_EXPECTED_PROPERTY)) {
+            assertThat(served, is(true));
+        } else {
+            Assume.assumeTrue(served);
+        }
+        HttpResponse manage = send("GET", DASHBOARD_PATH + "/manage");
+        assertThat(manage.getStatusCode(), is(200));
+        assertThat(manage.getFirstHeader(CONTENT_TYPE.toString()), containsString("text/html"));
+        assertThat(manage.getBodyAsString(), containsString("id=\"root\""));
+        assertThat(manage.getBodyAsString(), is(index.getBodyAsString()));
+    }
+
     private HttpResponse send(String method, String path) throws Exception {
         return httpClient.sendRequest(
             request()
