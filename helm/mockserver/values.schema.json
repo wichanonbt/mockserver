@@ -164,6 +164,7 @@
             "accessModes": { "type": "array" },
             "size": { "type": ["string", "integer"] },
             "mountPath": { "type": "string" },
+            "dailyBackup": { "type": "boolean" },
             "annotations": { "type": "object" }
           }
         }

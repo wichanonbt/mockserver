@@ -283,6 +283,7 @@ For example:
             <li><span class="keyword">MOCKSERVER_PERSIST_EXPECTATIONS=true</span></li>
             <li><span class="keyword">MOCKSERVER_PERSISTED_EXPECTATIONS_PATH=/persistence/persistedExpectations.json</span></li>
             <li><span class="keyword">MOCKSERVER_INITIALIZATION_JSON_PATH=/persistence/persistedExpectations.json</span></li>
+            <li><span class="keyword">MOCKSERVER_EXPECTATION_BACKUP_DIRECTORY=/persistence/backups</span> (unless <span class="keyword">app.persistence.dailyBackup=false</span>)</li>
         </ul>
     </li>
 </ol>
@@ -303,6 +304,7 @@ For example:
     <li><span class="keyword">app.persistence.accessModes</span> (default: <span class="this_value">[ReadWriteOnce]</span>) &mdash; access modes for the PVC</li>
     <li><span class="keyword">app.persistence.size</span> (default: <span class="this_value">256Mi</span>) &mdash; size of the PVC</li>
     <li><span class="keyword">app.persistence.mountPath</span> (default: <span class="this_value">/persistence</span>) &mdash; mount path inside the container</li>
+    <li><span class="keyword">app.persistence.dailyBackup</span> (default: <span class="this_value">true</span>) &mdash; write dated daily snapshots to <span class="keyword">&lt;mountPath&gt;/backups</span></li>
     <li><span class="keyword">app.persistence.annotations</span> (default: <span class="this_value">{}</span>) &mdash; annotations for the PVC (only used when creating a new PVC)</li>
 </ul>
 

@@ -32,6 +32,7 @@ import org.mockserver.model.*;
 import org.mockserver.openapi.OpenAPIConverter;
 import org.mockserver.openapi.OpenAPILoadProblems;
 import org.mockserver.openapi.OpenApiSyncPlanner;
+import org.mockserver.persistence.ExpectationDailyBackup;
 import org.mockserver.persistence.ExpectationFileSystemPersistence;
 import org.mockserver.persistence.RecordedBodyFileExtractor;
 import org.mockserver.persistence.RecordedExpectationPostProcessor;
@@ -399,6 +400,7 @@ public class HttpState {
     private final int maxWebSocketExpectationsInForce;
     private final Scheduler scheduler;
     private ExpectationFileSystemPersistence expectationFileSystemPersistence;
+    private ExpectationDailyBackup expectationDailyBackup;
     private org.mockserver.persistence.RecordedExpectationFileSystemPersistence recordedExpectationFileSystemPersistence;
     private org.mockserver.persistence.RecordedRequestsFileSystemPersistence recordedRequestsFileSystemPersistence;
     private ExpectationFileWatcher expectationFileWatcher;
@@ -664,6 +666,9 @@ public class HttpState {
             Metrics.registerLiveStateReaders(liveStateReaders);
             if (configuration.persistExpectations()) {
                 this.expectationFileSystemPersistence = new ExpectationFileSystemPersistence(configuration, mockServerLogger, requestMatchers, stateBackend.blobs());
+            }
+            if (isNotBlank(configuration.expectationBackupDirectory())) {
+                this.expectationDailyBackup = new ExpectationDailyBackup(configuration, mockServerLogger, requestMatchers);
             }
             if (configuration.persistRecordedExpectations()) {
                 this.recordedExpectationFileSystemPersistence = new org.mockserver.persistence.RecordedExpectationFileSystemPersistence(configuration, mockServerLogger, mockServerLog, stateBackend.blobs());
@@ -7716,6 +7721,7 @@ public class HttpState {
         warnIfInitOnlyPathSupplied("recordedBodyFilesDirectory", suppliedConfiguration.getRecordedBodyFilesDirectory(), configuration.recordedBodyFilesDirectory(), writesFiles);
         warnIfInitOnlyPathSupplied("auditLogFile", suppliedConfiguration.getAuditLogFile(), configuration.auditLogFile(), writesFiles);
         warnIfInitOnlyPathSupplied("persistedExpectationsPath", suppliedConfiguration.getPersistedExpectationsPath(), configuration.persistedExpectationsPath(), writesFiles);
+        warnIfInitOnlyPathSupplied("expectationBackupDirectory", suppliedConfiguration.getExpectationBackupDirectory(), configuration.expectationBackupDirectory(), writesFiles);
         warnIfInitOnlyPathSupplied("persistedRecordedExpectationsPath", suppliedConfiguration.getPersistedRecordedExpectationsPath(), configuration.persistedRecordedExpectationsPath(), writesFiles);
         warnIfInitOnlyPathSupplied("persistedRecordedRequestsPath", suppliedConfiguration.getPersistedRecordedRequestsPath(), configuration.persistedRecordedRequestsPath(), writesFiles);
         warnIfInitOnlyPathSupplied("memoryUsageCsvDirectory", suppliedConfiguration.getMemoryUsageCsvDirectory(), configuration.memoryUsageCsvDirectory(), writesFiles);
@@ -8159,6 +8165,9 @@ public class HttpState {
         }
         if (expectationFileSystemPersistence != null) {
             expectationFileSystemPersistence.stop();
+        }
+        if (expectationDailyBackup != null) {
+            expectationDailyBackup.stop();
         }
         if (recordedExpectationFileSystemPersistence != null) {
             recordedExpectationFileSystemPersistence.stop();

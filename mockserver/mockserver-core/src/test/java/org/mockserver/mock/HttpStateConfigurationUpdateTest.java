@@ -547,6 +547,7 @@ public class HttpStateConfigurationUpdateTest {
         configuration
             .auditLogFile("in-force/audit.ndjson")
             .persistedExpectationsPath("in-force/expectations.json")
+            .expectationBackupDirectory("in-force/backups")
             .persistedRecordedExpectationsPath("in-force/recorded-expectations.json")
             .persistedRecordedRequestsPath("in-force/recorded-requests.ndjson")
             .memoryUsageCsvDirectory("in-force/csv")
@@ -557,6 +558,7 @@ public class HttpStateConfigurationUpdateTest {
         put(new ConfigurationDTO()
             .setAuditLogFile("/extensions/audit.ndjson")
             .setPersistedExpectationsPath("/extensions/expectations.json")
+            .setExpectationBackupDirectory("/extensions/backups")
             .setPersistedRecordedExpectationsPath("/extensions/recorded-expectations.json")
             .setPersistedRecordedRequestsPath("/extensions/recorded-requests.ndjson")
             .setMemoryUsageCsvDirectory("/extensions")
@@ -566,21 +568,23 @@ public class HttpStateConfigurationUpdateTest {
         // then - every value in force is unchanged and each ignored value is reported once
         assertThat(configuration.auditLogFile(), is("in-force/audit.ndjson"));
         assertThat(configuration.persistedExpectationsPath(), is("in-force/expectations.json"));
+        assertThat(configuration.expectationBackupDirectory(), is("in-force/backups"));
         assertThat(configuration.persistedRecordedExpectationsPath(), is("in-force/recorded-expectations.json"));
         assertThat(configuration.persistedRecordedRequestsPath(), is("in-force/recorded-requests.ndjson"));
         assertThat(configuration.memoryUsageCsvDirectory(), is("in-force/csv"));
         assertThat(configuration.directoryToSaveDynamicSSLCertificate(), is("in-force/certificates"));
         assertThat(configuration.grpcProtocPath(), is("in-force/protoc"));
         List<String> warnings = logger.warnings();
-        assertThat(warnings, hasSize(7));
+        assertThat(warnings, hasSize(8));
         assertThat(warnings.get(0), containsString("auditLogFile is fixed at startup"));
         assertThat(warnings.get(0), containsString("\"/extensions/audit.ndjson\" has been IGNORED and auditLogFile remains \"in-force/audit.ndjson\""));
         assertThat(warnings.get(1), containsString("persistedExpectationsPath is fixed at startup"));
-        assertThat(warnings.get(2), containsString("persistedRecordedExpectationsPath is fixed at startup"));
-        assertThat(warnings.get(3), containsString("persistedRecordedRequestsPath is fixed at startup"));
-        assertThat(warnings.get(4), containsString("memoryUsageCsvDirectory is fixed at startup"));
-        assertThat(warnings.get(5), containsString("directoryToSaveDynamicSSLCertificate is fixed at startup"));
-        assertThat(warnings.get(6), containsString("grpcProtocPath is fixed at startup"));
+        assertThat(warnings.get(2), containsString("expectationBackupDirectory is fixed at startup"));
+        assertThat(warnings.get(3), containsString("persistedRecordedExpectationsPath is fixed at startup"));
+        assertThat(warnings.get(4), containsString("persistedRecordedRequestsPath is fixed at startup"));
+        assertThat(warnings.get(5), containsString("memoryUsageCsvDirectory is fixed at startup"));
+        assertThat(warnings.get(6), containsString("directoryToSaveDynamicSSLCertificate is fixed at startup"));
+        assertThat(warnings.get(7), containsString("grpcProtocPath is fixed at startup"));
     }
 
     private static final String CONTROL_PLANE_CA_CHAIN = "org/mockserver/authentication/mtls/ca.pem";
@@ -765,6 +769,7 @@ public class HttpStateConfigurationUpdateTest {
         configuration
             .auditLogFile("in-force/audit.ndjson")
             .persistedExpectationsPath("in-force/expectations.json")
+            .expectationBackupDirectory("in-force/backups")
             .persistedRecordedExpectationsPath("in-force/recorded-expectations.json")
             .persistedRecordedRequestsPath("in-force/recorded-requests.ndjson")
             .memoryUsageCsvDirectory("in-force/csv")

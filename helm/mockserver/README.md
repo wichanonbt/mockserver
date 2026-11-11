@@ -193,7 +193,7 @@ extensions:
       name: mockserver-extensions
 ```
 
-The volume is always mounted read-only. MockServer refuses to start if persisted expectations, persisted recorded expectations or requests, the audit log or the memory-usage CSV is enabled and would be written into `/extensions`.
+The volume is always mounted read-only. MockServer refuses to start if persisted expectations, daily expectation backups, persisted recorded expectations or requests, the audit log or the memory-usage CSV is enabled and would be written into `/extensions`.
 
 ### Persistent Storage
 
@@ -214,9 +214,10 @@ The following persistence values are supported:
 - `app.persistence.accessModes` (default: [ReadWriteOnce]) — PVC access modes
 - `app.persistence.size` (default: 256Mi) — PVC size
 - `app.persistence.mountPath` (default: /persistence) — mount path inside the container
+- `app.persistence.dailyBackup` (default: true) — write dated daily snapshots to `<mountPath>/backups`
 - `app.persistence.annotations` (default: {}) — annotations for the PVC
 
-When persistence is enabled, the chart automatically sets `MOCKSERVER_PERSIST_EXPECTATIONS`, `MOCKSERVER_PERSISTED_EXPECTATIONS_PATH`, and `MOCKSERVER_INITIALIZATION_JSON_PATH` environment variables. These are safe defaults — any matching property in your `mockserver.properties` file takes precedence.
+When persistence is enabled, the chart automatically sets `MOCKSERVER_PERSIST_EXPECTATIONS`, `MOCKSERVER_PERSISTED_EXPECTATIONS_PATH`, and `MOCKSERVER_INITIALIZATION_JSON_PATH` environment variables, and (unless `app.persistence.dailyBackup=false`) `MOCKSERVER_EXPECTATION_BACKUP_DIRECTORY` to `<mountPath>/backups` so dated `expectation-yyyy-MM-dd.json` snapshots land on the PVC. These are safe defaults — any matching property in your `mockserver.properties` file takes precedence.
 
 **Note:** Chart-managed PVCs are NOT deleted by `helm uninstall`. Delete the PVC manually if you want to remove persisted data.
 

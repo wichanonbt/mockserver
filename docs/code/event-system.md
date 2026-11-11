@@ -755,6 +755,8 @@ The launcher `mockserver-ui/scripts/launch-with-llm-capture.sh` uses exactly thi
 
 When `configuration.persistExpectations()` is true, `ExpectationFileSystemPersistence` implements `MockServerMatcherListener` and writes all active expectations to a JSON file whenever they change. It also **reads that document back once, on startup**, when the configured blob store is a cloud one — so cloud persistence is symmetric rather than write-only.
 
+When `configuration.expectationBackupDirectory()` is non-blank, `ExpectationDailyBackup` writes a separate dated snapshot (`expectation-yyyy-MM-dd.json`, UTC) into that directory on start and at each UTC midnight. That is a history file, not the live persist file: it is not reloaded on start, and an empty directory turns it off. Point it at any local folder, or at a Kubernetes PVC mount (the Helm chart uses `<mountPath>/backups`).
+
 ```mermaid
 sequenceDiagram
     participant AH as HttpActionHandler

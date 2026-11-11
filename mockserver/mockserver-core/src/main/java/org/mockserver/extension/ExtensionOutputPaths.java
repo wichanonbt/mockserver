@@ -73,6 +73,9 @@ final class ExtensionOutputPaths {
         if (Boolean.TRUE.equals(configuration.persistExpectations()) && isNotBlank(configuration.persistedExpectationsPath())) {
             outputs.add(new Output("persistedExpectationsPath", configuration.persistedExpectationsPath(), false));
         }
+        if (isNotBlank(configuration.expectationBackupDirectory())) {
+            outputs.add(new Output("expectationBackupDirectory", configuration.expectationBackupDirectory(), true));
+        }
         if (Boolean.TRUE.equals(configuration.persistRecordedExpectations()) && isNotBlank(configuration.persistedRecordedExpectationsPath())) {
             outputs.add(new Output("persistedRecordedExpectationsPath", configuration.persistedRecordedExpectationsPath(), false));
         }

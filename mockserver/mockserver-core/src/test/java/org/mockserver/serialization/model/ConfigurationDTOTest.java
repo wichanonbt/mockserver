@@ -151,6 +151,7 @@ public class ConfigurationDTOTest {
         Configuration target = configuration()
             .auditLogFile("audit.ndjson")
             .persistedExpectationsPath("expectations.json")
+            .expectationBackupDirectory("backups")
             .persistedRecordedExpectationsPath("recorded-expectations.json")
             .persistedRecordedRequestsPath("recorded-requests.ndjson")
             .memoryUsageCsvDirectory("csv")
@@ -160,6 +161,7 @@ public class ConfigurationDTOTest {
         new ConfigurationDTO()
             .setAuditLogFile("/extensions/audit.ndjson")
             .setPersistedExpectationsPath("/extensions/expectations.json")
+            .setExpectationBackupDirectory("/extensions/backups")
             .setPersistedRecordedExpectationsPath("/extensions/recorded-expectations.json")
             .setPersistedRecordedRequestsPath("/extensions/recorded-requests.ndjson")
             .setMemoryUsageCsvDirectory("/extensions")
@@ -169,6 +171,7 @@ public class ConfigurationDTOTest {
 
         assertThat(target.auditLogFile(), is("audit.ndjson"));
         assertThat(target.persistedExpectationsPath(), is("expectations.json"));
+        assertThat(target.expectationBackupDirectory(), is("backups"));
         assertThat(target.persistedRecordedExpectationsPath(), is("recorded-expectations.json"));
         assertThat(target.persistedRecordedRequestsPath(), is("recorded-requests.ndjson"));
         assertThat(target.memoryUsageCsvDirectory(), is("csv"));
@@ -177,9 +180,11 @@ public class ConfigurationDTOTest {
         assertThat(new ConfigurationDTO(target).getAuditLogFile(), is("audit.ndjson"));
         // a startup configuration (buildObject) still sets them
         Configuration built = new ConfigurationDTO().setAuditLogFile("a.ndjson").setPersistedExpectationsPath("e.json")
+            .setExpectationBackupDirectory("backups-dir")
             .setMemoryUsageCsvDirectory("dir").setDirectoryToSaveDynamicSSLCertificate("certs").setGrpcProtocPath("protoc-3").buildObject();
         assertThat(built.auditLogFile(), is("a.ndjson"));
         assertThat(built.persistedExpectationsPath(), is("e.json"));
+        assertThat(built.expectationBackupDirectory(), is("backups-dir"));
         assertThat(built.memoryUsageCsvDirectory(), is("dir"));
         assertThat(built.directoryToSaveDynamicSSLCertificate(), is("certs"));
         assertThat(built.grpcProtocPath(), is("protoc-3"));
@@ -742,6 +747,7 @@ public class ConfigurationDTOTest {
         // decide where the server writes files, so a control-plane request must not repoint them
         "auditLogFile",
         "persistedExpectationsPath",
+        "expectationBackupDirectory",
         "persistedRecordedExpectationsPath",
         "persistedRecordedRequestsPath",
         "memoryUsageCsvDirectory",

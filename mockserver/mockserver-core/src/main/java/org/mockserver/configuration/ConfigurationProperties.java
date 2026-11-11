@@ -360,6 +360,7 @@ public class ConfigurationProperties {
     // mock persistence
     private static final String MOCKSERVER_PERSIST_EXPECTATIONS = "mockserver.persistExpectations";
     private static final String MOCKSERVER_PERSISTED_EXPECTATIONS_PATH = "mockserver.persistedExpectationsPath";
+    private static final String MOCKSERVER_EXPECTATION_BACKUP_DIRECTORY = "mockserver.expectationBackupDirectory";
 
     // recorded expectation persistence
     private static final String MOCKSERVER_PERSIST_RECORDED_EXPECTATIONS = "mockserver.persistRecordedExpectations";
@@ -5613,6 +5614,24 @@ public class ConfigurationProperties {
      */
     public static void persistedExpectationsPath(String persistedExpectationsPath) {
         setProperty(MOCKSERVER_PERSISTED_EXPECTATIONS_PATH, persistedExpectationsPath);
+    }
+
+    public static String expectationBackupDirectory() {
+        return readPropertyHierarchically(PROPERTIES, MOCKSERVER_EXPECTATION_BACKUP_DIRECTORY, "MOCKSERVER_EXPECTATION_BACKUP_DIRECTORY", "");
+    }
+
+    /**
+     * Directory for dated daily snapshots of active expectations as JSON. Each day writes
+     * {@code expectation-yyyy-MM-dd.json} (UTC) into this directory, overwriting that day's
+     * file. Empty (the default) turns the backup off. Point it at any local folder, or at a
+     * Kubernetes PVC mount in the cloud.
+     * <p>
+     * Startup-only: a {@code PUT /mockserver/configuration} cannot change it.
+     *
+     * @param expectationBackupDirectory directory to write {@code expectation-yyyy-MM-dd.json} into
+     */
+    public static void expectationBackupDirectory(String expectationBackupDirectory) {
+        setProperty(MOCKSERVER_EXPECTATION_BACKUP_DIRECTORY, expectationBackupDirectory);
     }
 
     // recorded expectation persistence

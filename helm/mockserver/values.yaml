@@ -192,6 +192,7 @@ app:
     #   MOCKSERVER_PERSIST_EXPECTATIONS=true
     #   MOCKSERVER_PERSISTED_EXPECTATIONS_PATH=/persistence/persistedExpectations.json
     #   MOCKSERVER_INITIALIZATION_JSON_PATH=/persistence/persistedExpectations.json
+    #   MOCKSERVER_EXPECTATION_BACKUP_DIRECTORY=/persistence/backups
     #
     # These are safe defaults — any matching property in your mockserver.properties
     # file takes precedence over environment variables.
@@ -232,6 +233,9 @@ app:
     size: 256Mi
     # -- Mount path inside the container for the persistent volume.
     mountPath: /persistence
+    # -- Write dated daily expectation snapshots (expectation-yyyy-MM-dd.json) into
+    # <mountPath>/backups on the PVC. Set false to keep only the live persisted file.
+    dailyBackup: true
     # -- Annotations to add to the PVC (only used when creating a new PVC).
     # Example:
     #   annotations:

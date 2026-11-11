@@ -2979,6 +2979,28 @@ public class ConfigurationTest {
     }
 
     @Test
+    public void shouldSetAndGetExpectationBackupDirectory() {
+        String original = ConfigurationProperties.expectationBackupDirectory();
+        try {
+            assertThat(configuration.expectationBackupDirectory(), equalTo(""));
+
+            String firstPath = tempFilePath();
+            ConfigurationProperties.expectationBackupDirectory(firstPath);
+
+            assertThat(ConfigurationProperties.expectationBackupDirectory(), equalTo(firstPath));
+            assertThat(System.getProperty("mockserver.expectationBackupDirectory"), equalTo(firstPath));
+            assertThat(configuration.expectationBackupDirectory(), equalTo(firstPath));
+
+            String secondPath = tempFilePath();
+            configuration.expectationBackupDirectory(secondPath);
+
+            assertThat(configuration.expectationBackupDirectory(), equalTo(secondPath));
+        } finally {
+            ConfigurationProperties.expectationBackupDirectory(original);
+        }
+    }
+
+    @Test
     public void shouldSetAndGetRecordedBodyFilesDirectory() {
         String original = ConfigurationProperties.recordedBodyFilesDirectory();
         try {

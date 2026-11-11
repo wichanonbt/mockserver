@@ -82,6 +82,8 @@ public class ExtensionOutputPathsTest {
             containsString("auditLogFile"));
         assertThat(ExtensionOutputPaths.outputInside(noOutputs().outputMemoryUsageCsv(true).memoryUsageCsvDirectory(classes.toString()), classes),
             containsString("memoryUsageCsvDirectory"));
+        assertThat(ExtensionOutputPaths.outputInside(noOutputs().expectationBackupDirectory(classes.toString()), classes),
+            containsString("expectationBackupDirectory"));
         assertThat(ExtensionOutputPaths.outputInside(noOutputs().auditLogFile(classes.resolve("../outside/audit.ndjson").toString()), classes), nullValue());
     }
 
@@ -96,9 +98,12 @@ public class ExtensionOutputPathsTest {
             containsString("persistedExpectationsPath"));
         assertThat(ExtensionOutputPaths.outputInside(noOutputs().outputMemoryUsageCsv(true).memoryUsageCsvDirectory(extensions.toString()), jar),
             containsString("memoryUsageCsvDirectory"));
+        assertThat(ExtensionOutputPaths.outputInside(noOutputs().expectationBackupDirectory(extensions.toString()), jar),
+            containsString("expectationBackupDirectory"));
         // a classpath wildcard over the JAR's directory is not recursive
         assertThat(ExtensionOutputPaths.outputInside(noOutputs().persistExpectations(true).persistedExpectationsPath(extensions.resolve("sub/e.json").toString()), jar), nullValue());
         assertThat(ExtensionOutputPaths.outputInside(noOutputs().outputMemoryUsageCsv(true).memoryUsageCsvDirectory(extensions.resolve("csv").toString()), jar), nullValue());
+        assertThat(ExtensionOutputPaths.outputInside(noOutputs().expectationBackupDirectory(extensions.resolve("csv").toString()), jar), nullValue());
     }
 
     @Test
@@ -110,7 +115,8 @@ public class ExtensionOutputPathsTest {
             .persistedExpectationsPath(inside)
             .persistedRecordedRequestsPath(inside)
             .persistedRecordedExpectationsPath(inside)
-            .memoryUsageCsvDirectory(inside);
+            .memoryUsageCsvDirectory(inside)
+            .expectationBackupDirectory("");
 
         assertThat(ExtensionOutputPaths.outputInside(disabled, classes), nullValue());
     }

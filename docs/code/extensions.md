@@ -128,14 +128,14 @@ JAR and hooks.
 
 **Output-path refusal.** Before any extension starts, `ExtensionOutputPaths` refuses start-up with an
 `ExtensionException` when an enabled output would be written where an extension's code is loaded from:
-`persistedExpectationsPath` (with `persistExpectations`), `persistedRecordedExpectationsPath` (with
+`persistedExpectationsPath` (with `persistExpectations`), `expectationBackupDirectory` (when set), `persistedRecordedExpectationsPath` (with
 `persistRecordedExpectations`), `persistedRecordedRequestsPath` (with `persistRecordedRequestsToDisk`),
 `auditLogFile` (when set) or `memoryUsageCsvDirectory` (with `outputMemoryUsageCsv`). For a class directory the
 output may not be anywhere beneath it, because a directory entry loads any file under it. For a JAR the output may
 not be directly in the JAR's directory, because a classpath wildcard over that directory (`/extensions/*`) is not
 recursive, so a subdirectory is allowed. Disabled outputs are not checked, so the default relative paths never
 refuse a `java -cp mockserver.jar:acme.jar` run from the JAR's own directory. The check runs only at start-up.
-A start-up-only check is enough because all five paths, and `controlPlaneAuditEnabled`, are fixed at startup:
+A start-up-only check is enough because all six paths, and `controlPlaneAuditEnabled`, are fixed at startup:
 `PUT /mockserver/configuration` ignores a different value and logs a warning (see
 [configuration-reference.md](configuration-reference.md#capacity-properties-fixed-at-startup)), so a later PUT
 cannot point a writer inside an extension classpath directory.

@@ -34,6 +34,17 @@ java -jar ~/Downloads/mockserver-netty-{{ site.mockserver_version }}-no-dependen
 -Dmockserver.initializationJsonPath=mockserverInitialization.json \
 -jar ~/Downloads/mockserver-netty-{{ site.mockserver_version }}-no-dependencies.jar -serverPort 1080,1081 -logLevel INFO</code></pre>
 
+<a id="daily_expectation_backup" class="anchor" href="#daily_expectation_backup">&nbsp;</a>
+
+<h2>Daily Expectation Backups</h2>
+
+<p>The live persist file is overwritten on every change. To keep a dated snapshot as well, set <a href="/mock_server/configuration_properties.html#button_configuration_expectation_backup_directory">expectationBackupDirectory</a> to a directory MockServer can write to. MockServer then writes <span class="inline_code">expectation-yyyy-MM-dd.json</span> (UTC date) into that directory when it starts and again at each UTC midnight, overwriting that day's file. An empty directory (the default) turns the backup off.</p>
+
+<p>Locally the directory can be any path. In Kubernetes it must be on the PVC, otherwise the files vanish when the pod is replaced. Enabling Helm persistence also sets the backup directory to <span class="inline_code">&lt;mountPath&gt;/backups</span> unless you set <span class="inline_code">app.persistence.dailyBackup=false</span>.</p>
+
+<pre class="prettyprint lang-bash code"><code class="code">MOCKSERVER_EXPECTATION_BACKUP_DIRECTORY=/var/mockserver/backups \
+java -jar ~/Downloads/mockserver-netty-{{ site.mockserver_version }}-no-dependencies.jar -serverPort 1080 -logLevel INFO</code></pre>
+
 <a id="persisting_recorded_expectations" class="anchor" href="#persisting_recorded_expectations">&nbsp;</a>
 
 <h2>Persisting Recorded Proxy Expectations</h2>
@@ -74,7 +85,7 @@ java -jar ~/Downloads/mockserver-netty-{{ site.mockserver_version }}-no-dependen
   --set app.persistence.enabled=true \
   mockserver helm/mockserver</code></pre>
 
-<p>This creates a PersistentVolumeClaim and automatically configures MockServer to persist and reload expectations from it. No additional configuration is needed.</p>
+<p>This creates a PersistentVolumeClaim and automatically configures MockServer to persist and reload expectations from it, and to write dated daily backups under <span class="inline_code">/persistence/backups</span>. No additional configuration is needed.</p>
 
 <p>For clustered deployments on Kubernetes, use a <span class="keyword">ReadWriteMany</span> PVC backed by a shared filesystem
     (e.g. NFS, <a target="_blank" href="https://aws.amazon.com/efs/" rel="noopener noreferrer">AWS EFS</a>, or <a target="_blank" href="https://docs.microsoft.com/en-us/azure/storage/files/" rel="noopener noreferrer">Azure Files</a>).

@@ -246,6 +246,7 @@ When `app.persistence.enabled=true`, the chart:
    - `MOCKSERVER_PERSIST_EXPECTATIONS=true`
    - `MOCKSERVER_PERSISTED_EXPECTATIONS_PATH=/persistence/persistedExpectations.json`
    - `MOCKSERVER_INITIALIZATION_JSON_PATH=/persistence/persistedExpectations.json`
+   - `MOCKSERVER_EXPECTATION_BACKUP_DIRECTORY=/persistence/backups` (unless `app.persistence.dailyBackup=false`)
 
 **Property precedence:** These environment variables are safe defaults. MockServer's property resolution order is: system property > property file > environment variable > hardcoded default. So any matching property in the user's `mockserver.properties` file overrides the chart-injected env vars.
 
@@ -257,6 +258,7 @@ When `app.persistence.enabled=true`, the chart:
 | `app.persistence.accessModes` | list | `[ReadWriteOnce]` | PVC access modes |
 | `app.persistence.size` | string | `256Mi` | PVC size |
 | `app.persistence.mountPath` | string | `/persistence` | Container mount path |
+| `app.persistence.dailyBackup` | bool | `true` | Write dated `expectation-yyyy-MM-dd.json` snapshots to `<mountPath>/backups` |
 | `app.persistence.annotations` | map | `{}` | PVC annotations |
 | `podSecurityContext` | map | `{}` | Pod-level securityContext, rendered verbatim into `spec.template.spec.securityContext`. Accepts any pod-level field (`fsGroup`, `fsGroupChangePolicy`, `runAsGroup`, `seccompProfile`, …). Empty ⇒ nothing emitted. |
 

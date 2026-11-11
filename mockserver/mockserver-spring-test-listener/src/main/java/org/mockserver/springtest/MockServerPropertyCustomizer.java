@@ -167,6 +167,9 @@ public class MockServerPropertyCustomizer implements ContextCustomizer {
             case "persistedExpectationsPath":
                 config.persistedExpectationsPath(value);
                 break;
+            case "expectationBackupDirectory":
+                config.expectationBackupDirectory(value);
+                break;
             case "memoryUsageCsvDirectory":
                 config.memoryUsageCsvDirectory(value);
                 break;

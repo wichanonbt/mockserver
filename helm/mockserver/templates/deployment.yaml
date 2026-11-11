@@ -177,6 +177,10 @@ spec:
               value: {{ .Values.app.persistence.mountPath }}/persistedExpectations.json
             - name: MOCKSERVER_INITIALIZATION_JSON_PATH
               value: {{ .Values.app.persistence.mountPath }}/persistedExpectations.json
+{{- if .Values.app.persistence.dailyBackup }}
+            - name: MOCKSERVER_EXPECTATION_BACKUP_DIRECTORY
+              value: {{ .Values.app.persistence.mountPath }}/backups
+{{- end }}
 {{- end }}
 {{- if .Values.sidecar.transparentProxy }}
             - name: MOCKSERVER_TRANSPARENT_PROXY_ENABLED

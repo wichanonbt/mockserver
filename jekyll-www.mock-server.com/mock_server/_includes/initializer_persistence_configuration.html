@@ -143,6 +143,24 @@
     <pre class="code" style="padding: 2px;"><code class="code">-Dmockserver.persistedExpectationsPath="org/mockserver/server/initialize/initializerJson.json"</code></pre>
 </div>
 
+<button id="button_configuration_expectation_backup_directory" class="accordion title"><strong>Expectation Backup Directory</strong></button>
+<div class="panel title">
+    <p>Directory for dated daily snapshots of the active expectations as JSON. Each UTC day writes <span class="keyword">expectation-yyyy-MM-dd.json</span> into this directory (overwriting that day's file). Empty (the default) turns the backup off.</p>
+    <p>This is separate from <a href="#button_configuration_persist_expectations_as_json">persistExpectations</a>, which overwrites one live file whenever expectations change. Use this when you want a recoverable history, for example on a Kubernetes PVC: point the directory at the PVC mount (the Helm chart sets it to <span class="keyword">&lt;mountPath&gt;/backups</span> when persistence is enabled). Locally you can point it at any folder you can write to.</p>
+    <p>This setting is startup-only: set it before MockServer starts (system property, environment variable, property file or <span class="inline_code">Configuration</span>). A <span class="inline_code">PUT /mockserver/configuration</span> request cannot change it (a different value is ignored and a warning is logged), so a caller of the control plane cannot redirect where MockServer writes files.</p>
+    <p>Type: <span class="keyword">string</span> Default: <span class="this_value">""</span></p>
+    <p>Java Code:</p>
+    <pre class="prettyprint lang-java code"><code class="code">ConfigurationProperties.expectationBackupDirectory(String expectationBackupDirectory)</code></pre>
+    <p>System Property:</p>
+    <pre class="code" style="padding: 2px;"><code class="code">-Dmockserver.expectationBackupDirectory=...</code></pre>
+    <p>Environment Variable:</p>
+    <pre class="code" style="padding: 2px;"><code class="code">MOCKSERVER_EXPECTATION_BACKUP_DIRECTORY=...</code></pre>
+    <p>Property File:</p>
+    <pre class="code" style="padding: 2px;"><code class="code">mockserver.expectationBackupDirectory=...</code></pre>
+    <p>Example:</p>
+    <pre class="code" style="padding: 2px;"><code class="code">-Dmockserver.expectationBackupDirectory="/var/mockserver/backups"</code></pre>
+</div>
+
 <button id="button_configuration_persist_recorded_expectations" class="accordion title"><strong>Persist Recorded Expectations As JSON</strong></button>
 <div class="panel title">
     <p>Enable the persisting of recorded expectations (proxy traffic) as json, which is updated whenever a new request is forwarded through the proxy.</p>

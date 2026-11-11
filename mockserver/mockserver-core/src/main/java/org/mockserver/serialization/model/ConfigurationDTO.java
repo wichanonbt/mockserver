@@ -130,6 +130,7 @@ public class ConfigurationDTO implements DTO<Configuration> {
 
     private Boolean persistExpectations;
     private String persistedExpectationsPath;
+    private String expectationBackupDirectory;
 
     private String auditLogFile;
 
@@ -536,6 +537,7 @@ public class ConfigurationDTO implements DTO<Configuration> {
 
             this.persistExpectations = configuration.persistExpectations();
             this.persistedExpectationsPath = configuration.persistedExpectationsPath();
+            this.expectationBackupDirectory = configuration.expectationBackupDirectory();
 
             this.auditLogFile = configuration.auditLogFile();
 
@@ -1046,6 +1048,7 @@ public class ConfigurationDTO implements DTO<Configuration> {
 
         configuration.persistExpectations(persistExpectations);
         configuration.persistedExpectationsPath(persistedExpectationsPath);
+        configuration.expectationBackupDirectory(expectationBackupDirectory);
 
         configuration.auditLogFile(auditLogFile);
 
@@ -1782,7 +1785,7 @@ public class ConfigurationDTO implements DTO<Configuration> {
         if (persistExpectations != null) {
             target.persistExpectations(persistExpectations);
         }
-        // persistedExpectationsPath, auditLogFile, persistedRecordedExpectationsPath and persistedRecordedRequestsPath
+        // persistedExpectationsPath, expectationBackupDirectory, auditLogFile, persistedRecordedExpectationsPath and persistedRecordedRequestsPath
         // are deliberately not applied: they decide where the server writes files, so they are fixed at startup
         // (see HttpState.applyConfigurationUpdate)
         if (persistRecordedExpectations != null) {
@@ -3428,6 +3431,15 @@ public class ConfigurationDTO implements DTO<Configuration> {
 
     public ConfigurationDTO setPersistedExpectationsPath(String persistedExpectationsPath) {
         this.persistedExpectationsPath = persistedExpectationsPath;
+        return this;
+    }
+
+    public String getExpectationBackupDirectory() {
+        return expectationBackupDirectory;
+    }
+
+    public ConfigurationDTO setExpectationBackupDirectory(String expectationBackupDirectory) {
+        this.expectationBackupDirectory = expectationBackupDirectory;
         return this;
     }
 

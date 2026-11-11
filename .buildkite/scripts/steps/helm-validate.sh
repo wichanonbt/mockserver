@@ -32,9 +32,19 @@ exec "$SCRIPT_DIR/../run-in-docker.sh" \
       > /dev/null || errors=$((errors + 1))
 
     echo "--- Rendering mockserver with persistence enabled (chart-managed PVC)"
-    helm template test-release helm/mockserver \
-      --set app.persistence.enabled=true \
-      > /dev/null || errors=$((errors + 1))
+    rendered_persist=$(helm template test-release helm/mockserver \
+      --set app.persistence.enabled=true 2>/dev/null) || {
+        echo "FAILED: helm template with app.persistence.enabled=true failed to render"
+        errors=$((errors + 1))
+        rendered_persist=""
+      }
+    case "$rendered_persist" in
+      *MOCKSERVER_EXPECTATION_BACKUP_DIRECTORY*"/persistence/backups"*)
+        echo "PASS: persistence enabled sets MOCKSERVER_EXPECTATION_BACKUP_DIRECTORY to /persistence/backups" ;;
+      *)
+        echo "FAILED: persistence enabled did not set MOCKSERVER_EXPECTATION_BACKUP_DIRECTORY to /persistence/backups"
+        errors=$((errors + 1)) ;;
+    esac
 
     echo "--- Rendering mockserver with persistence enabled (existing PVC)"
     helm template test-release helm/mockserver \

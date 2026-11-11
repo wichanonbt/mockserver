@@ -316,6 +316,7 @@ public class Configuration {
     // mock persistence
     private volatile Boolean persistExpectations;
     private volatile String persistedExpectationsPath;
+    private volatile String expectationBackupDirectory;
 
     // recorded expectation persistence
     private volatile Boolean persistRecordedExpectations;
@@ -4742,6 +4743,26 @@ public class Configuration {
      */
     public Configuration persistedExpectationsPath(String persistedExpectationsPath) {
         this.persistedExpectationsPath = persistedExpectationsPath;
+        return this;
+    }
+
+    public String expectationBackupDirectory() {
+        if (expectationBackupDirectory == null) {
+            return ConfigurationProperties.expectationBackupDirectory();
+        }
+        return expectationBackupDirectory;
+    }
+
+    /**
+     * Directory for dated daily snapshots of active expectations as JSON
+     * ({@code expectation-yyyy-MM-dd.json}, UTC). Empty (the default) turns the backup off.
+     * <p>
+     * The default is ""
+     *
+     * @param expectationBackupDirectory directory to write daily expectation backups into
+     */
+    public Configuration expectationBackupDirectory(String expectationBackupDirectory) {
+        this.expectationBackupDirectory = expectationBackupDirectory;
         return this;
     }
 
