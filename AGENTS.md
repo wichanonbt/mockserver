@@ -215,26 +215,20 @@ to subagents, because a subagent is where the correct **model, temperature, and
 reasoning effort** are selected per task, which is the primary lever for managing
 inference cost and determinism. **Decompose** work into the smallest independent
 units, **delegate** them to subagents and run them in parallel, **verify** each
-as fully as can be done safely, subject each to **adversarial review until no
-major findings remain**, **re-verify** after any review-driven change, then
-**commit each unit separately and reintegrate it onto `master`**.
+as fully as can be done safely, then
+**commit each unit separately and reintegrate it onto `master`**. Do not spawn
+`review-cheap` / Sonnet as a pre-commit gate unless the user asks.
 
-- **The gate chain is the authority to ship, not a human prompt.** Once a unit
-  passes the full chain (classify → validate → changelog → adversarial review
-  with a PASS verdict → re-verify), commit and push autonomously. Gates are **mandatory and
-  fail-closed** — if any gate cannot run or does not return a clean PASS, do not
-  commit; surface the failure and leave the work for inspection.
+- **The gate chain is classify → validate → changelog → commit.** Do not spawn
+  `review-cheap`, `review-final`, or Sonnet as part of that chain unless the user
+  asks for a review.
 - **Match autonomy to risk** — classify each unit by risk and act within its
   authority class (act-autonomously / gated-approval / advisory / reserved).
   Changes to the controls themselves (tests, gates, the review constitution,
   model/temperature/effort routing) and irreversible/production actions are never
   act-autonomously. See `.opencode/rules/risk-authority-classification.md`.
-- **Scale the ceremony to the task** — full DVRR for substantial/risky work; a
-  lightweight path (inline edit + one adversarial review + targeted verify) for
-  small changes; a direct edit for trivial ones. Don't manufacture ceremony that
-  adds no safety. **The worktree itself is never the ceremony to skip** — it is
-  near-free and every session runs in one (see next bullet); only the *merge gate
-  chain* scales with risk.
+- **Scale the ceremony to the task** — don't manufacture ceremony that adds no
+  safety. Do not auto-launch reviewer subagents on commit.
 - **Cap parallelism — no more than 10 active subagents and no more than 10-way
   parallelism at any one time** (hard caps; apply a lower limit for complexity,
   cost, contention, or model availability). Queue or defer rather than exceed
@@ -270,7 +264,7 @@ how each phase maps to an owning rule, is in `.opencode/rules/operating-model.md
 - This repository uses **trunk-based development**: commit directly to the default branch (`master`). Do NOT create feature/topic branches — there is no "branch first" step.
 - **Keep `master` linear — never create merge commits.** Reintegrate worktree/unit work by **rebasing onto the `master` tip and fast-forwarding** (`git rebase origin/master` then a fast-forward `git push`), never by `git merge` (incl. `--no-ff`), a non-`--rebase` `git pull`, or an intermediate "integration branch". When several worktrees are ready, rebase them one at a time under the merge lock. See `.opencode/rules/worktree-workflow.md` → *Linear History — No Merge Commits* and `.opencode/rules/git-safety.md`.
 - Commit and push **autonomously once the full pre-commit gate chain passes** — the gates replace human pre-approval (Agent Operating Model above). A user instruction always overrides this default. **Exception — higher-scrutiny control changes** (files under `.opencode/rules/**`, `.opencode/agents/**`, `.claude/agents/**`, `.opencode/commands/**`, `.claude/commands/**`, `.opencode/skills/**`, `.opencode/plugins/**`, `.opencode/scripts/**`, `.opencode/evals/**`, `opencode.jsonc`, `.claude/settings*.json`, the review constitution, CI/test gates) are **gated-approval, not autonomous**: present the PASS and get explicit user approval before committing, using the authoritative `review-final`. See `.opencode/rules/control-integrity.md` and `.opencode/rules/risk-authority-classification.md`.
-- NEVER run `git commit` without first completing the full pre-commit workflow in `.opencode/rules/commit-workflow.md` (classify → validate → changelog → adversarial review (PASS) → re-verify → commit). Use the `/commit` command to ensure the workflow is followed. If any gate fails, do NOT commit.
+- Complete classify → validate → changelog before `git commit` (see `.opencode/rules/commit-workflow.md`). Do **not** run `review-cheap` / Sonnet as a pre-commit gate unless the user asks. If validation fails, do NOT commit.
 - NEVER run destructive git commands without confirmation (see `.opencode/rules/git-safety.md`) — auto-commit/push of new commits is authorized; `reset --hard`, `push --force`, history rewrites, and discarding uncommitted work are NOT.
 - NEVER add Co-Authored-By, Signed-off-by, or any other trailers to commit messages
 - NEVER amend commits that have been pushed to remote
@@ -285,7 +279,7 @@ Multiple opencode sessions may run concurrently on the same repository. Follow `
 
 ## Pre-Commit Workflow
 
-The full workflow in `.opencode/rules/commit-workflow.md` (classify -> validate -> changelog -> adversarial review (PASS) -> re-verify -> commit) is the gate chain that authorizes an autonomous commit — for higher-scrutiny **control / AI-component changes** it authorizes only a *gated-approval* commit (see Git Policy above). Run it whenever a unit of work is complete, not only when asked. `/commit` enforces it. Skip steps only when the user explicitly requests it; if any non-skipped gate fails, do NOT commit.
+The workflow in `.opencode/rules/commit-workflow.md` is classify → validate → changelog → commit. Adversarial review (`review-cheap` / Sonnet) is **opt-in**: run it only when the user asks.
 
 ## Documentation Style
 

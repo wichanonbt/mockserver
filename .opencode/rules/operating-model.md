@@ -10,13 +10,11 @@ temperature, and reasoning effort** are chosen for each task (the primary lever
 for inference cost and determinism) and where the orchestrator's context is
 preserved. Concretely: **decompose** the work into the smallest independent
 units, **delegate** them to subagents and run them in parallel, **verify** each
-unit as fully as can be done safely, subject each to **adversarial review until
-no major findings remain (capped at 8 iterations — then record residual risk and
-escalate)**, **re-verify** after any review-driven change, then **commit
-each unit separately and reintegrate it onto `master`**. The gate chain — not a
-human prompt — is the authority to ship. Scale the ceremony to the task: full
-DVRR for substantial/risky work, a lightweight path for small changes, a direct
-edit for trivial ones.
+unit as fully as can be done safely, then **commit
+each unit separately and reintegrate it onto `master`**. Do not spawn
+`review-cheap` / Sonnet as a pre-commit gate unless the user asks. Scale the
+ceremony to the task: full DVRR for substantial/risky work, a lightweight path
+for small changes, a direct edit for trivial ones.
 
 This rule is the *spine* that ties together the existing rules — it does not
 replace them. Each phase below points at the rule that owns the detail.
@@ -53,7 +51,7 @@ flowchart LR
 | **Delegate** | The orchestrator's primary job is to delegate, not to do. Hand the **overwhelming majority of execution — implementation *and* investigation** — to subagents and run independent units concurrently. Delegating is also how routing happens: a subagent is where the right **model, temperature, and reasoning effort** are selected for the task, which is the main lever for inference cost and determinism. For exploratory units (ideation, spec/design, ambiguous problems), stage that routing as a descending-temperature explore→refine→validate pipeline ([[multi-pass-temperature]]). Do work inline only for the trivial residue where delegation adds no value. Default to delegation unless the work is tightly coupled, must be sequenced, or is too ambiguous to split safely. | [[subagent-routing]], [[multi-pass-temperature]], AGENTS.md routing table |
 | **Isolate** | **No work runs in the bare checkout** — every independent *session* (the primary interactive session, parallel windows, long autonomous runs) works in its **own worktree** on a local-only branch, **even when it makes no changes** (read-only investigation/analysis/review included). Helper subagents spawned by a primary **share its tree** so they can review its uncommitted in-flight work; isolating them would break the review gate. Isolation is **between independent sessions, not within one**. | [[worktree-workflow]] |
 | **Verify** | Verify each unit as fully as is *safe*: unit/integration/e2e tests, build, lint, static analysis, type checks, Docker builds, and non-destructive runtime checks (`--dry-run`, `terraform plan`, `--version`, validation flags, executing scripts you wrote). **If it can be safely verified, verify it**; otherwise use the strongest safe substitute. | [[testing-policy]], [[commit-workflow]] (Step 2) |
-| **Review** | Subject each unit to adversarial review on a fresh context / different model, applying the 8-lens constitution. The reviewer tries to *disprove* the change, not bless it. Repeat until no major (CRITICAL/MAJOR) findings remain **or 8 review iterations are reached** — at the cap, record residual risk and escalate rather than reintegrate as if converged (see [[review-constitution]] Iteration Protocol). | [[review-constitution]]; commit gate uses `review-cheap` (per [[commit-workflow]] Step 4), merge-to-master escalates to `review-final`; `code-reviewer` is the quick pre-commit check only |
+| **Review** | Opt-in only. Do **not** auto-spawn `review-cheap`, `review-final`, or Sonnet on commit. Run a review only when the user asks. | [[review-constitution]]; [[commit-workflow]] Step 4 |
 | **Re-verify** | Any review-driven change re-triggers the relevant verification — fixes regress. No unit is complete until post-review verification passes. | [[commit-workflow]] (Step 4 — re-run on BLOCK) |
 | **Commit** | One coherent unit → one commit. Never bundle unrelated changes. Preserves traceability, reviewability, and clean rollback. | [[commit-workflow]] |
 | **Reintegrate** | Rebase the unit onto the latest `master` and fast-forward push — **linear history, no merge commit** (never `git merge`/`--no-ff`/non-`--rebase` pull/integration branch). Conflicts surface here; resolve them, then re-verify. Concurrent rebases serialise through the `flock` rebase lock. | [[worktree-workflow]] (steps 7–8), `/worktree-merge` |
@@ -101,16 +99,10 @@ thresholds) — not an automatic cut-off.
 
 ## Autonomy & The Commit Gate
 
-**The gate chain is the authority to ship — not a human prompt.** Once a unit
-passes the full chain (classify → validate → changelog → adversarial review with
-a PASS verdict → re-verify), the agent **commits and pushes to `master`
-autonomously, without waiting to be asked.** The adversarial review is the one
-defined in [[commit-workflow]] Step 4 — that rule is the single source of truth
-for which reviewer runs; the `/worktree-merge` path escalates to the
-authoritative `review-final` at its Gate 3 before a worktree branch lands on
-`master`. This is the repository's standing authorization: the strong, mandatory
-gates *replace* human pre-approval. It applies to interactive and autonomous
-sessions alike.
+**The gate chain is classify → validate → changelog → commit.** Do not spawn
+`review-cheap`, `review-final`, or Sonnet as part of that chain unless the user
+asks for a review. Once validations pass, commit and push without a reviewer
+subagent.
 
 This autonomy is bounded by hard rules that **remain fully in force**:
 

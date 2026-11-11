@@ -2,13 +2,15 @@
 
 Run this workflow whenever a unit of work is complete — or when the user asks to
 commit — and you MUST complete it before creating the commit. Under the
-[[operating-model]] (DVRR), this gate chain (classify → validate → changelog →
-adversarial review with a PASS verdict, re-verifying after any fix → commit) is
+[[operating-model]] (DVRR), this gate chain (classify → validate → changelog → commit) is
 **the authority that replaces human pre-approval**: once every non-skipped step
 passes, commit and push autonomously without waiting to be asked. Each step is mandatory unless
 explicitly skipped by the user, and the chain is **fail-closed** — if any
-non-skipped step fails (tests red, review BLOCK, review subagent unavailable),
+non-skipped step fails (tests red),
 do NOT commit; surface the failure and leave the work for inspection.
+
+Do **not** spawn `review-cheap`, `review-final`, or any Sonnet/Opus reviewer as
+part of commit. Review only when the user explicitly asks.
 
 ## Parallel Session Safety
 
@@ -162,52 +164,23 @@ If the change is user-facing, `changelog.md` MUST carry a matching entry under `
 - Reference the GitHub issue when one exists, e.g. `(fixes #1234)`.
 - Prefix the entry with `BREAKING:` for a breaking change.
 - If an entry already covers the issue, correct it rather than adding a duplicate.
-- Stage the changelog edit with the rest of the commit so it is part of the Step 4 review diff.
+- Stage the changelog edit with the rest of the commit.
 
 If the change is **not** user-facing (tests, CI, internal refactors with no behaviour change, build scripts, internal docs), no entry is required — state explicitly that the changelog was reviewed and why no entry is needed.
 
-## Step 4: Adversarial Code Review (MANDATORY for all commits)
+## Step 4: Adversarial Code Review (off unless asked)
 
-After validations and the changelog review pass, launch an adversarial review using a subagent with a **fresh context** (a different model where a stronger tier is provisioned; on opencode, fresh context + low temperature — see `docs/operations/opencode-configuration.md`). The reviewer MUST be a distinct agent from the one that authored the change (**separation of duties**). This catches issues the implementing agent may have blind spots for.
+Do **not** launch `review-cheap`, `review-final`, `code-reviewer`, or any other
+reviewer subagent (including Claude Sonnet) as a pre-commit gate. That review is
+slow and expensive; on this fork it is opt-in only.
 
-**Control / AI-component changes use the authoritative `review-final`** (not `review-cheap`), and are **gated-approval, not act-autonomously**: after a PASS, present the change and the verdict to the user and get explicit approval before committing (per the higher-scrutiny note in Step 1). All other changes use `review-cheap` as below.
-
-Spawn the review subagent (`review-cheap` by default, `review-final` for control changes; use the Agent tool in Claude Code, the Task tool in opencode) and provide:
-- The diff of files being committed: stage them first with `git add`, then capture `git diff --cached`
-- The commit message you intend to use
-- The file categories from Step 1
-
-The review prompt MUST include:
-```
-Review these changes adversarially using `.opencode/rules/review-constitution.md`.
-
-Apply all 8 lenses (Ambiguity, Incompleteness, Inconsistency, Infeasibility, Insecurity, 
-Inoperability, Incorrectness, Overcomplexity) as the baseline, and additionally apply the 
-matching per-artefact profile — select it from the profiles table in the constitution 
-(e.g. review-coding for code+tests, review-deployment for infra/Terraform, review-documentation 
-for docs). The profile extends the baseline; it never lets you skip a lens. Pay special attention to:
-- Hallucinated function/method/module names that don't exist (COR-07)
-- Plausible-looking but incorrect logic (COR-05)
-- Missing error handling or edge cases (INC-01, INC-07)
-- Security issues (SEC-06: secrets in logs, SEC-05: input validation, SEC-12: template injection)
-- Netty ByteBuf leaks (COR-10, INC-13)
-- javax/jakarta compatibility violations (FEA-06)
-- Module boundary violations (COR-08)
-- Missing consumer documentation updates (OPS-09)
-
-Format findings with principle IDs (e.g., [SEC-06] CRITICAL: ...).
-Complete the Review Completeness Check.
-Provide PASS or BLOCK verdict with severity-ranked findings.
-```
-
-**Security:** Before sending the diff to the reviewer, scan for obvious secrets (API keys, tokens, passwords, `.env` content). If found, warn the user and do NOT include the secret values in the review prompt — redact them or exclude those files from the review.
-
-If the review returns **BLOCK**, fix the issues, re-run any affected validations (Step 2), and re-run the review before committing. Iterate until the review returns PASS — but you **MUST cap the loop at 8 review iterations** (per the Iteration Protocol in [[review-constitution]]). If 8 iterations complete without a PASS, **do not commit**: record the unresolved residual risk explicitly (the outstanding findings and why they remain) and escalate to the user rather than reintegrating as if converged.
-If the review returns **PASS**, proceed to commit.
+Run a review only when the user explicitly asks (for example "review this",
+`/review-code`, `/review-spec`). If they do not ask, skip this step and go to
+commit.
 
 ## Step 5: Acquire Lock and Commit
 
-Only after all validations, the changelog review, and the adversarial review pass:
+Only after validations and the changelog review pass:
 
 0. **Check the operator halt**: Run `.opencode/scripts/check-halt.sh commit` (checks the global `AGENT_HALT` and the scoped `AGENT_HALT_commit`). If it exits non-zero, an operator has engaged the kill-switch — **do not commit**; stop and wait (see [[operator-halt]]).
 1. **Acquire commit lock**: Run `.opencode/scripts/acquire-commit-lock.sh`
@@ -234,10 +207,10 @@ The `OPENCODE_SESSION_PID` environment variable tracks the parent shell PID to h
 
 ## Skip Conditions
 
-- If the user says "skip tests" or "skip validation" — skip Step 2 but still run Steps 3 and 4 (changelog and adversarial review)
-- If the user says "skip changelog" — skip Step 3 but still run Steps 2 and 4
-- If the user says "skip review" — skip Step 4 but still run Steps 2 and 3 (validations and changelog)
-- If the user says "just commit" or "skip everything" — skip Steps 2, 3 and 4
+- Adversarial review (Step 4) is skipped by default. Do not spawn review-cheap / Sonnet.
+- If the user says "skip tests" or "skip validation" — skip Step 2 but still run Step 3 (changelog)
+- If the user says "skip changelog" — skip Step 3 but still run Step 2
+- If the user says "just commit" or "skip everything" — skip Steps 2 and 3
 - Always warn the user what is being skipped
 
 ## Quick Reference
@@ -252,17 +225,10 @@ flowchart TD
     C --> D["Run validations per category"]
     D --> CL["Changelog review
     update changelog.md if user-facing"]
-    CL --> E["Adversarial review
-    review-cheap agent via Task tool
-    fresh context, different model"]
-    E --> F{PASS?}
-    F -->|Yes| HALT{"Operator halt?"}
+    CL --> HALT{"Operator halt?"}
     HALT -->|"engaged"| HSTOP["Stop — wait for operator"]
     HALT -->|"clear"| G["Acquire commit lock
     acquire-commit-lock.sh"]
-    F -->|"No (<8 iters)"| H["Fix issues"] --> D
-    F -->|"No (8th iter)"| CAP["Record residual risk
-    escalate — do NOT commit"]
     G --> I{Lock acquired?}
     I -->|Yes| J["Verify staged files
     Create commit
