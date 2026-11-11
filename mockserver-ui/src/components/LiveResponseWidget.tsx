@@ -4,19 +4,21 @@ import AlertTitle from '@mui/material/AlertTitle';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
-import Divider from '@mui/material/Divider';
 import IconButton from '@mui/material/IconButton';
+import InputBase from '@mui/material/InputBase';
 import Paper from '@mui/material/Paper';
-import TextField from '@mui/material/TextField';
+import Tab from '@mui/material/Tab';
+import Tabs from '@mui/material/Tabs';
 import Typography from '@mui/material/Typography';
 import CloseIcon from '@mui/icons-material/Close';
-import SendIcon from '@mui/icons-material/SendOutlined';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { buildBaseUrl } from '../lib/mcpClient';
 import { getServerStatus } from '../lib/configuration';
 import type { ConnectionParams } from '../hooks/useConnectionParams';
-import { monospaceFontFamily } from '../theme';
+import { ThemeProvider } from '@mui/material/styles';
+import { buildTheme, monospaceFontFamily } from '../theme';
 import CopyButton from './CopyButton';
+import JsonEditorLazy from './JsonEditorLazy';
 
 /**
  * "Try It" — fires a real HTTP request derived from the expectation draft's
@@ -447,6 +449,153 @@ function originOf(url: string): string | null {
   }
 }
 
+
+const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'] as const;
+
+function parseHeaderRows(text: string): { key: string; value: string }[] {
+  const rows: { key: string; value: string }[] = [];
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) continue;
+    const idx = trimmed.indexOf(':');
+    if (idx <= 0) {
+      rows.push({ key: trimmed, value: '' });
+    } else {
+      rows.push({ key: trimmed.slice(0, idx).trim(), value: trimmed.slice(idx + 1).trim() });
+    }
+  }
+  return rows;
+}
+
+function serializePairs(rows: { key: string; value: string }[], header: boolean): string {
+  return rows
+    .filter((row) => row.key.trim().length > 0)
+    .map((row) => (header ? `${row.key}: ${row.value}` : `${row.key}=${row.value}`))
+    .join('\n');
+}
+
+const METHOD_COLOUR: Record<string, string> = {
+  GET: '#69c27a',
+  HEAD: '#69c27a',
+  OPTIONS: '#69c27a',
+  POST: '#f0a202',
+  PUT: '#61aeee',
+  PATCH: '#c084fc',
+  DELETE: '#ef5b5b',
+};
+
+function methodColour(method: string): string {
+  return METHOD_COLOUR[method.trim().toUpperCase()] ?? '#e5e7eb';
+}
+
+const cellSx = {
+  px: 1.5,
+  fontSize: 13,
+  fontFamily: monospaceFontFamily,
+  '& input, & textarea': {
+    py: 1.1,
+    px: 0,
+    color: 'text.primary',
+    '&::placeholder': { color: 'text.disabled', opacity: 1 },
+  },
+} as const;
+
+function PairTable({
+  text,
+  onChange,
+  kind,
+}: {
+  text: string;
+  onChange: (text: string) => void;
+  kind: 'Query' | 'Header';
+}) {
+  const header = kind === 'Header';
+  const parsed = header
+    ? parseHeaderRows(text)
+    : parsePairLines(text).map(([key, value]) => ({ key, value }));
+  const rows = [...parsed, { key: '', value: '' }];
+  const [descriptions, setDescriptions] = useState<string[]>([]);
+
+  function patch(index: number, field: 'key' | 'value', value: string) {
+    const next = rows.map((row, i) => (i === index ? { ...row, [field]: value } : row));
+    onChange(serializePairs(next, header));
+  }
+
+  const colBorder = { borderRight: '1px solid', borderColor: 'divider' };
+
+  return (
+    <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, overflow: 'hidden' }}>
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)',
+          bgcolor: 'action.hover',
+          borderBottom: '1px solid',
+          borderColor: 'divider',
+        }}
+      >
+        {['Key', 'Value', 'Description'].map((label, i) => (
+          <Typography
+            key={label}
+            variant="caption"
+            sx={{
+              px: 1.5,
+              py: 0.9,
+              fontWeight: 600,
+              color: 'text.secondary',
+              letterSpacing: 0.2,
+              ...(i < 2 ? colBorder : {}),
+            }}
+          >
+            {label}
+          </Typography>
+        ))}
+      </Box>
+      {rows.map((row, index) => (
+        <Box
+          key={`${kind}-${index}`}
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)',
+            borderBottom: index === rows.length - 1 ? 'none' : '1px solid',
+            borderColor: 'divider',
+            '&:hover': { bgcolor: 'action.hover' },
+          }}
+        >
+          <InputBase
+            value={row.key}
+            onChange={(e) => patch(index, 'key', e.target.value)}
+            placeholder="Key"
+            sx={{ ...cellSx, ...colBorder }}
+            inputProps={{ 'aria-label': `${kind} key ${index + 1}` }}
+          />
+          <InputBase
+            value={row.value}
+            onChange={(e) => patch(index, 'value', e.target.value)}
+            placeholder="Value"
+            sx={{ ...cellSx, ...colBorder }}
+            inputProps={{ 'aria-label': `${kind} value ${index + 1}` }}
+          />
+          <InputBase
+            value={descriptions[index] ?? ''}
+            onChange={(e) =>
+              setDescriptions((current) => {
+                const next = current.slice();
+                while (next.length <= index) next.push('');
+                next[index] = e.target.value;
+                return next;
+              })
+            }
+            placeholder="Description"
+            sx={cellSx}
+            inputProps={{ 'aria-label': `${kind} description ${index + 1}` }}
+          />
+        </Box>
+      ))}
+    </Box>
+  );
+}
+
 interface LiveResult {
   status: number;
   statusText: string;
@@ -457,6 +606,8 @@ interface LiveResult {
   oversizeBytes: number | null;
   elapsedMs: number;
   url: string;
+  /** fetch redirect:manual — the upstream (or mock) returned a 3xx the browser will not expose. */
+  opaqueRedirect?: boolean;
 }
 
 export default function LiveResponseWidget({
@@ -487,6 +638,7 @@ export default function LiveResponseWidget({
   const [result, setResult] = useState<LiveResult | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const [tryTab, setTryTab] = useState<'params' | 'headers' | 'body'>('params');
 
   const currentSignature = useMemo(() => matcherSignature(expectationJson), [expectationJson]);
   const matcherChanged = currentSignature !== seedSignature;
@@ -532,8 +684,9 @@ export default function LiveResponseWidget({
     targetOrigin !== window.location.origin;
 
   const setField = useCallback(
-    (key: keyof EditableRequest) => (e: React.ChangeEvent<HTMLInputElement>) =>
-      setRequest((r) => ({ ...r, [key]: e.target.value })),
+    (key: keyof EditableRequest) =>
+      (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
+        setRequest((r) => ({ ...r, [key]: e.target.value })),
     [],
   );
 
@@ -583,7 +736,24 @@ export default function LiveResponseWidget({
         headers: headerInit,
         body: bodyAllowed ? request.body : undefined,
         signal: controller.signal,
+        // Default follow chases a forwarded 3xx to a foreign origin and surfaces CORS as "Failed to fetch".
+        redirect: 'manual',
       });
+      if (res.type === 'opaqueredirect') {
+        if (abortRef.current !== controller) return;
+        setResult({
+          status: 0,
+          statusText: 'Redirect',
+          headers: [],
+          body: '',
+          truncated: false,
+          oversizeBytes: null,
+          elapsedMs: Math.round(performance.now() - started),
+          url,
+          opaqueRedirect: true,
+        });
+        return;
+      }
       // Skip reading the body when the server DECLARES an oversize one. Note this
       // is a courtesy, not a hard bound: a chunked or length-less response has no
       // content-length, so it is still read in full before being truncated for
@@ -634,25 +804,49 @@ export default function LiveResponseWidget({
     }
   }, [request, targetBaseUrl, crossOrigin, targetOrigin]);
 
+  const selectedMethod =
+    METHODS.includes(request.method.trim().toUpperCase() as (typeof METHODS)[number])
+      ? request.method.trim().toUpperCase()
+      : (request.method || 'GET');
+  const methodOptions = METHODS.includes(selectedMethod as (typeof METHODS)[number])
+    ? [...METHODS]
+    : [selectedMethod, ...METHODS];
+
   const statusColour = (status: number) =>
     status >= 500 ? 'error' : status >= 400 ? 'warning' : status >= 200 && status < 300 ? 'success' : 'default';
 
   return (
-    <Paper variant="outlined" sx={{ p: 2, mt: 1 }} data-testid="live-response-widget">
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-        <Typography variant="subtitle2" sx={{ textTransform: 'uppercase', letterSpacing: 0.5, color: 'text.secondary' }}>
-          Try It — send a live request
+    <ThemeProvider theme={buildTheme('light')}>
+    <Paper
+      elevation={0}
+      sx={{
+        p: 0,
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        minHeight: 0,
+        bgcolor: 'background.paper',
+        borderRadius: 0,
+        overflow: 'hidden',
+      }}
+      data-testid="live-response-widget"
+    >
+      <Box sx={{ height: 2, bgcolor: '#0284c7', flexShrink: 0 }} />
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 2, py: 1.25, borderBottom: '1px solid', borderColor: 'divider' }}>
+        <Typography variant="subtitle1" sx={{ fontWeight: 600, letterSpacing: 0.1 }}>
+          Try It
         </Typography>
         <IconButton size="small" onClick={onClose} aria-label="Close Try It">
           <CloseIcon fontSize="small" />
         </IconButton>
       </Box>
 
+      <Box sx={{ flex: 1, overflow: 'auto', px: 2, pt: 1.5, pb: 2, minHeight: 0 }}>
       {matcherChanged && (
         <Alert
           severity="info"
           variant="outlined"
-          sx={{ mb: 1 }}
+          sx={{ mb: 1.5 }}
           data-testid="try-it-stale"
           action={
             <Button size="small" startIcon={<RefreshIcon fontSize="small" />} onClick={reDerive}>
@@ -669,13 +863,8 @@ export default function LiveResponseWidget({
         <Alert severity="info" variant="outlined">{derivation.unsupported}</Alert>
       ) : (
         <>
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-            Pre-filled from the matcher above using literal values only — pattern, negated and
-            schema matchers are never sent verbatim. Edit anything below before sending.
-          </Typography>
-
           {derivation.notes.length > 0 && (
-            <Alert severity="warning" variant="outlined" sx={{ mb: 1 }} data-testid="try-it-derivation-notes">
+            <Alert severity="warning" variant="outlined" sx={{ mb: 1.5 }} data-testid="try-it-derivation-notes">
               <AlertTitle sx={{ mb: 0.5 }}>Could not be derived as literal values</AlertTitle>
               <Box component="ul" sx={{ m: 0, pl: 2 }}>
                 {derivation.notes.map((n) => (
@@ -690,22 +879,110 @@ export default function LiveResponseWidget({
             </Alert>
           )}
 
-          <Box sx={{ display: 'flex', gap: 1, mb: 1, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-            <TextField
-              size="small"
-              label="Target base URL"
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'stretch',
+              height: 40,
+              border: '1px solid',
+              borderColor: request.path.trim().length === 0 ? 'error.main' : 'divider',
+              borderRadius: 1,
+              overflow: 'hidden',
+              mb: 0.75,
+            }}
+          >
+            <Box
+              component="select"
+              aria-label="Live request method"
+              value={selectedMethod}
+              onChange={setField('method')}
+              sx={{
+                appearance: 'none',
+                WebkitAppearance: 'none',
+                border: 0,
+                outline: 'none',
+                bgcolor: 'transparent',
+                color: methodColour(selectedMethod),
+                fontWeight: 700,
+                fontSize: 13,
+                pl: 1.5,
+                pr: 2.5,
+                width: 92,
+                flexShrink: 0,
+                cursor: 'pointer',
+                backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'><path d='M6 9l6 6 6-6'/></svg>")`,
+                backgroundRepeat: 'no-repeat',
+                backgroundPosition: 'right 8px center',
+              }}
+            >
+              {methodOptions.map((method) => (
+                <option key={method} value={method}>{method}</option>
+              ))}
+            </Box>
+            <Box sx={{ width: '1px', bgcolor: 'divider', my: 0.75 }} />
+            <InputBase
               value={targetBaseUrl}
               onChange={(e) => setTargetBaseUrl(e.target.value)}
-              sx={{ flex: '1 1 280px' }}
-              helperText={
-                portsUnknown
-                  ? 'Could not read the server’s bound ports — using the port serving this dashboard.'
-                  : 'MockServer serves mocks and the control plane on the same port as this dashboard.'
-              }
-              slotProps={{ htmlInput: { 'aria-label': 'Target base URL', sx: { fontFamily: monospaceFontFamily } } }}
+              placeholder="http://localhost:1080"
+              sx={{
+                flex: '0 0 auto',
+                width: 'auto',
+                pl: 1.25,
+                pr: 0,
+                fontSize: 13,
+                fontFamily: monospaceFontFamily,
+                color: 'text.secondary',
+                '& .MuiInputBase-input': {
+                  width: `${Math.max(targetBaseUrl.length, 8)}ch`,
+                  p: 0,
+                  minWidth: 0,
+                },
+              }}
+              inputProps={{ 'aria-label': 'Target base URL' }}
             />
+            <InputBase
+              value={request.path}
+              onChange={setField('path')}
+              placeholder="Enter URL or paste text"
+              sx={{
+                flex: 1,
+                minWidth: 0,
+                pl: 0,
+                pr: 1.25,
+                fontSize: 13,
+                fontFamily: monospaceFontFamily,
+                '& .MuiInputBase-input': { p: 0 },
+              }}
+              inputProps={{ 'aria-label': 'Live request path' }}
+            />
+            <Button
+              variant="contained"
+              onClick={() => void send()}
+              disabled={sending || request.path.trim().length === 0}
+              sx={{
+                borderRadius: 0,
+                height: '100%',
+                px: 2.75,
+                minWidth: 88,
+                boxShadow: 'none',
+                bgcolor: '#0284c7',
+                '&:hover': { bgcolor: '#0369a1', boxShadow: 'none' },
+                '&.Mui-disabled': { bgcolor: 'action.disabledBackground', color: 'text.disabled' },
+              }}
+              aria-label={sending ? 'Sending…' : 'Send request'}
+            >
+              {sending ? 'Sending…' : 'Send'}
+            </Button>
+          </Box>
+
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, minHeight: 20 }}>
+            {portsUnknown && (
+              <Typography variant="caption" color="text.secondary">
+                Could not read the server’s bound ports — using the port serving this dashboard.
+              </Typography>
+            )}
             {otherPorts.length > 0 && (
-              <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', flexWrap: 'wrap', pt: 0.5 }}>
+              <>
                 <Typography variant="caption" color="text.secondary">Also bound:</Typography>
                 {otherPorts.map((p) => (
                   <Chip
@@ -719,91 +996,83 @@ export default function LiveResponseWidget({
                     }
                   />
                 ))}
-              </Box>
+              </>
             )}
           </Box>
 
           {crossOrigin && (
-            <Alert severity="warning" variant="outlined" sx={{ mb: 1 }} data-testid="try-it-cors-warning">
+            <Alert severity="warning" variant="outlined" sx={{ mb: 1.5 }} data-testid="try-it-cors-warning">
               {`${targetOrigin} is a different origin from this dashboard (${typeof window !== 'undefined' ? window.location.origin : ''}). ` +
                 'The browser will block the response unless MockServer has CORS enabled on that port ' +
                 '(mockserver.enableCORSForAllResponses=true).'}
             </Alert>
           )}
 
-          <Box sx={{ display: 'flex', gap: 1, mb: 1, flexWrap: 'wrap' }}>
-            <TextField
-              size="small"
-              label="Method"
-              value={request.method}
-              onChange={setField('method')}
-              sx={{ width: 120 }}
-              slotProps={{ htmlInput: { 'aria-label': 'Live request method' } }}
+          <Tabs
+            value={tryTab}
+            onChange={(_event, value: 'params' | 'headers' | 'body') => setTryTab(value)}
+            sx={{
+              minHeight: 34,
+              mb: 1.5,
+              '& .MuiTab-root': { minHeight: 34, textTransform: 'none', px: 1.5 },
+              '& .MuiTabs-indicator': { bgcolor: '#0284c7', height: 2 },
+            }}
+          >
+            <Tab
+              value="params"
+              label={parsePairLines(request.query).length > 0 ? `Params (${parsePairLines(request.query).length})` : 'Params'}
             />
-            <TextField
-              size="small"
-              label="Path"
-              value={request.path}
-              onChange={setField('path')}
-              sx={{ flex: '1 1 240px' }}
-              error={request.path.trim().length === 0}
-              helperText={request.path.trim().length === 0 ? 'Enter the path to send' : ' '}
-              slotProps={{ htmlInput: { 'aria-label': 'Live request path', sx: { fontFamily: monospaceFontFamily } } }}
+            <Tab
+              value="headers"
+              label={parseHeaderRows(request.headers).length > 0 ? `Headers (${parseHeaderRows(request.headers).length})` : 'Headers'}
             />
-          </Box>
-          <Box sx={{ display: 'flex', gap: 1, mb: 1, flexDirection: { xs: 'column', md: 'row' } }}>
-            <TextField
-              size="small"
-              label="Query (name=value per line)"
-              value={request.query}
-              onChange={setField('query')}
-              multiline
-              minRows={2}
-              sx={{ flex: 1 }}
-              slotProps={{ htmlInput: { 'aria-label': 'Live request query', sx: { typography: 'body2', fontFamily: monospaceFontFamily } } }}
-            />
-            <TextField
-              size="small"
-              label="Headers (Name: value per line)"
-              value={request.headers}
-              onChange={setField('headers')}
-              multiline
-              minRows={2}
-              sx={{ flex: 1 }}
-              slotProps={{ htmlInput: { 'aria-label': 'Live request headers', sx: { typography: 'body2', fontFamily: monospaceFontFamily } } }}
-            />
-          </Box>
-          <TextField
-            size="small"
-            label="Body"
-            value={request.body}
-            onChange={setField('body')}
-            multiline
-            minRows={2}
-            fullWidth
-            sx={{ mb: 1 }}
-            helperText={
-              request.body.length > 0 && ['GET', 'HEAD'].includes(request.method.trim().toUpperCase())
-                ? 'A GET/HEAD request cannot carry a body — it will not be sent.'
-                : ' '
-            }
-            slotProps={{ htmlInput: { 'aria-label': 'Live request body', sx: { typography: 'body2', fontFamily: monospaceFontFamily } } }}
-          />
+            <Tab value="body" label="Body" />
+          </Tabs>
 
-          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-            <Button
-              variant="contained"
-              size="small"
-              startIcon={<SendIcon fontSize="small" />}
-              onClick={() => void send()}
-              disabled={sending || request.path.trim().length === 0}
-            >
-              {sending ? 'Sending…' : 'Send request'}
-            </Button>
-            <Typography variant="caption" color="text.secondary">
-              Sent live from the browser — it hits real expectations and is recorded in the log.
-            </Typography>
-          </Box>
+          {tryTab === 'params' && (
+            <Box sx={{ mb: 1.5 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75, fontWeight: 600 }}>
+                Query Params
+              </Typography>
+              <PairTable
+                kind="Query"
+                text={request.query}
+                onChange={(query) => setRequest((r) => ({ ...r, query }))}
+              />
+            </Box>
+          )}
+          {tryTab === 'headers' && (
+            <Box sx={{ mb: 1.5 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75, fontWeight: 600 }}>
+                Headers
+              </Typography>
+              <PairTable
+                kind="Header"
+                text={request.headers}
+                onChange={(headers) => setRequest((r) => ({ ...r, headers }))}
+              />
+            </Box>
+          )}
+          {tryTab === 'body' && (
+            <Box sx={{ mb: 1.5 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75, fontWeight: 600 }}>
+                JSON body
+              </Typography>
+              <JsonEditorLazy
+                value={request.body}
+                onChange={(body) => setRequest((r) => ({ ...r, body }))}
+                language={request.body.trim().length === 0 ? 'plaintext' : 'json'}
+                height={260}
+                ariaLabel="Live request body"
+                placeholder="{}"
+              />
+              {request.body.length > 0 && ['GET', 'HEAD'].includes(request.method.trim().toUpperCase()) && (
+                <Typography variant="caption" color="warning.main" sx={{ display: 'block', mt: 0.75 }}>
+                  A GET/HEAD request cannot carry a body — it will not be sent.
+                </Typography>
+              )}
+            </Box>
+          )}
 
           {failure !== null && (
             <Alert severity="error" variant="outlined" sx={{ mt: 1 }} data-testid="try-it-failure">
@@ -812,71 +1081,91 @@ export default function LiveResponseWidget({
             </Alert>
           )}
 
-          {result !== null && (
+          {result !== null ? (
             <Box sx={{ mt: 1 }} data-testid="try-it-result">
-              <Divider sx={{ mb: 1 }} />
+              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, display: 'block', mb: 1 }}>
+                Response
+              </Typography>
+              {result.opaqueRedirect ? (
+                <Alert severity="info" variant="outlined" sx={{ mb: 1 }} data-testid="try-it-opaque-redirect">
+                  The mock forwarded this request and the upstream answered with a redirect. The browser
+                  hides redirect Location from this page, so Try It cannot show that response. The
+                  forward itself succeeded. In a terminal, send the same URL and headers with curl -i
+                  to see the status and Location.
+                </Alert>
+              ) : null}
               <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap', mb: 1 }}>
                 <Chip
                   size="small"
-                  color={statusColour(result.status)}
-                  label={`${result.status}${result.statusText ? ` ${result.statusText}` : ''}`}
+                  color={result.opaqueRedirect ? 'info' : statusColour(result.status)}
+                  label={result.opaqueRedirect ? 'Redirect' : `${result.status}${result.statusText ? ` ${result.statusText}` : ''}`}
                 />
                 <Typography variant="caption" color="text.secondary">{`${result.elapsedMs} ms`}</Typography>
                 <Typography variant="caption" color="text.secondary" sx={{ fontFamily: monospaceFontFamily, wordBreak: 'break-all' }}>
                   {result.url}
                 </Typography>
-                <CopyButton text={result.body} />
+                {result.opaqueRedirect ? null : <CopyButton text={result.body} />}
               </Box>
-              {result.headers.length === 0 ? (
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-                  No response headers were readable (a cross-origin response only exposes headers the
-                  server allow-lists via Access-Control-Expose-Headers).
-                </Typography>
-              ) : (
-                <Box sx={{ mb: 1 }}>
-                  {result.headers.map(([name, value]) => (
-                    <Typography
-                      key={name}
-                      variant="caption"
-                      sx={{ display: 'block', fontFamily: monospaceFontFamily, wordBreak: 'break-all' }}
-                    >
-                      {`${name}: ${value}`}
+              {result.opaqueRedirect ? null : (
+                <>
+                  {result.headers.length === 0 ? (
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                      No response headers were readable (a cross-origin response only exposes headers the
+                      server allow-lists via Access-Control-Expose-Headers).
                     </Typography>
-                  ))}
-                </Box>
+                  ) : (
+                    <Box sx={{ mb: 1 }}>
+                      {result.headers.map(([name, value]) => (
+                        <Typography
+                          key={name}
+                          variant="caption"
+                          sx={{ display: 'block', fontFamily: monospaceFontFamily, wordBreak: 'break-all' }}
+                        >
+                          {`${name}: ${value}`}
+                        </Typography>
+                      ))}
+                    </Box>
+                  )}
+                  {result.oversizeBytes !== null ? (
+                    <Typography variant="caption" color="warning.main" sx={{ display: 'block' }}>
+                      {`Response body is ${result.oversizeBytes} bytes — too large to display, so it was not read into the page.`}
+                    </Typography>
+                  ) : (
+                    <Box
+                      component="pre"
+                      sx={{
+                        m: 0,
+                        p: 1.5,
+                        maxHeight: 280,
+                        overflow: 'auto',
+                        bgcolor: 'action.hover',
+                        borderRadius: 1,
+                        fontFamily: monospaceFontFamily,
+                        fontSize: '0.75rem',
+                        whiteSpace: 'pre-wrap',
+                        wordBreak: 'break-all',
+                      }}
+                    >
+                      {result.body.length > 0 ? result.body : '(empty response body)'}
+                    </Box>
+                  )}
+                  {result.truncated && (
+                    <Typography variant="caption" color="text.secondary">
+                      Body truncated for display.
+                    </Typography>
+                  )}
+                </>
               )}
-              {result.oversizeBytes !== null ? (
-                <Typography variant="caption" color="warning.main" sx={{ display: 'block' }}>
-                  {`Response body is ${result.oversizeBytes} bytes — too large to display, so it was not read into the page.`}
-                </Typography>
-              ) : (
-                <Box
-                  component="pre"
-                  sx={{
-                    m: 0,
-                    p: 1,
-                    maxHeight: 260,
-                    overflow: 'auto',
-                    bgcolor: 'action.hover',
-                    borderRadius: 1,
-                    fontFamily: monospaceFontFamily,
-                    fontSize: '0.75rem',
-                    whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-all',
-                  }}
-                >
-                  {result.body.length > 0 ? result.body : '(empty response body)'}
-                </Box>
-              )}
-              {result.truncated && (
-                <Typography variant="caption" color="text.secondary">
-                  Body truncated for display.
-                </Typography>
-              )}
+            </Box>
+          ) : failure === null && (
+            <Box sx={{ mt: 6, textAlign: 'center', color: 'text.disabled' }}>
+              <Typography variant="body2">Enter the URL and click Send to get a response</Typography>
             </Box>
           )}
         </>
       )}
+      </Box>
     </Paper>
+    </ThemeProvider>
   );
 }

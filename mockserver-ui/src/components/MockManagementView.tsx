@@ -35,10 +35,14 @@ import {
   draftFromFallback,
   draftFromScenario,
   endpointId,
+  ensureGroupHeader,
   findEndpoint,
+  groupHeaderValue,
   groupIdForPath,
+  isGroupHeaderRule,
   loadNamedGroups,
   newResponseExpectation,
+  nextScenarioPriority,
   retargetExpectation,
   saveNamedGroups,
   scenarioFromValue,
@@ -134,6 +138,7 @@ export default function MockManagementView({ connectionParams }: MockManagementV
   const [auditEntries, setAuditEntries] = useState<AuditEntry[] | null>(null);
   const [auditError, setAuditError] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<ScenarioModel | null>(null);
+  const [pendingGroupDelete, setPendingGroupDelete] = useState<GroupModel | null>(null);
   const [tryItOpen, setTryItOpen] = useState(false);
 
   const [pendingOpen, setPendingOpen] = useState<string | null>(null);
@@ -331,7 +336,7 @@ export default function MockManagementView({ connectionParams }: MockManagementV
       writes.push(registerExpectation(connectionParams, raw));
     }
     await Promise.all(writes);
-    setEndpointKey(endpointId(method, nextPath));
+    setEndpointKey(endpointId(method, nextPath, openGroupId ?? ''));
   }
 
   async function save() {
@@ -352,16 +357,43 @@ export default function MockManagementView({ connectionParams }: MockManagementV
               : endpoint.fallback.raw
           )
           : endpoint.fallback?.raw;
-        const written = applyFallbackDraft(raw, current, method, nextPath);
+        const written = applyFallbackDraft(raw, current, method, nextPath, groupedName());
         rememberWhole(endpoint.fallback?.id, written);
         if (endpoint.fallback?.id) setLoadedFallbackId(endpoint.fallback.id);
         await registerExpectation(connectionParams, written);
         await alignPath({ ...endpoint, fallback: undefined, scenarios: endpoint.scenarios.filter((item) => item.id !== endpoint.fallback?.id) });
       } else if (scenario && draft && scenario.id === scenarioId && !scenario.advancedOnly) {
-        const written = applyScenarioDraft(await wholeScenario(scenario), draft, method, nextPath, endpoint.pathWire);
+        const written = applyScenarioDraft(
+          await wholeScenario(scenario),
+          { ...draft, rules: ensureGroupHeader(draft.rules, groupedName()) },
+          method,
+          nextPath,
+          endpoint.pathWire,
+        );
         rememberWhole(scenario.id, written);
         setLoadedWholeId(scenario.id);
         await registerExpectation(connectionParams, written);
+        const writtenPriority = typeof written['priority'] === 'number' ? written['priority'] : 0;
+        const existingFallback = endpoint.fallback;
+        const fallbackPriority = existingFallback?.priority ?? 0;
+        if (existingFallback && writtenPriority <= fallbackPriority) {
+          const fallbackRaw = existingFallback.id
+            ? wholes.current.get(existingFallback.id) ?? (
+              existingFallback.truncated
+                ? await fetchExpectation(connectionParams, existingFallback.id)
+                : existingFallback.raw
+            )
+            : existingFallback.raw;
+          const pinned = applyFallbackDraft(
+            fallbackRaw,
+            draftFromFallback(existingFallback),
+            method,
+            nextPath,
+            groupedName(),
+          );
+          rememberWhole(existingFallback.id, pinned);
+          await registerExpectation(connectionParams, pinned);
+        }
         await alignPath({ ...endpoint, scenarios: endpoint.scenarios.filter((item) => item.id !== scenario.id) });
       } else {
         return;
@@ -382,12 +414,20 @@ export default function MockManagementView({ connectionParams }: MockManagementV
     });
   }
 
+  function groupedName(): string | undefined {
+    const fromRules = endpoint
+      ? groupHeaderValue(endpoint.scenarios.flatMap((item) => item.rules))
+      : undefined;
+    if (fromRules) return fromRules;
+    return named.find((item) => item.id === openGroupId)?.name;
+  }
+
   async function addScenario() {
     if (!endpoint || busy) return;
-    const priority = endpoint.scenarios.reduce((max, item) => Math.max(max, item.priority), 0) + 1;
+    const priority = nextScenarioPriority(endpoint);
     setBusy(true);
     try {
-      await registerExpectation(connectionParams, newResponseExpectation(method, normalisePath(path), priority));
+      await registerExpectation(connectionParams, newResponseExpectation(method, normalisePath(path), priority, groupedName()));
     } catch (error) {
       fail(error, 'The scenario could not be added');
     } finally {
@@ -395,27 +435,34 @@ export default function MockManagementView({ connectionParams }: MockManagementV
     }
   }
 
-  async function removeScenario() {
-    if (!pendingDelete) return;
-    const removedId = pendingDelete.id;
+  async function removeScenario(target: ScenarioModel) {
+    const removedId = target.id;
+    const removedKey = target.itemKey;
+    const remaining = endpoint?.scenarios.filter((item) => item.id !== removedId) ?? [];
+    const leftoverFallback = endpoint?.fallback && endpoint.fallback.id !== removedId ? endpoint : undefined;
     setBusy(true);
     try {
       await deleteExpectation(connectionParams, removedId);
       wholes.current.delete(removedId);
-      const remaining = endpoint?.scenarios.filter((item) => item.id !== removedId) ?? [];
-      if (scenarioId === removedId || scenario?.id === removedId) {
-        if (remaining[0]) {
+      useDashboardStore.setState((state) => ({
+        activeExpectations: state.activeExpectations.filter((item) => {
+          if (item.key === removedKey || item.key === removedId) return false;
+          return item.value['id'] !== removedId;
+        }),
+      }));
+      if (remaining[0]) {
+        if (scenarioId === removedId || scenario?.id === removedId) {
           selectScenario(remaining[0]);
-        } else if (endpoint) {
-          setScenarioId(null);
-          setDraft(null);
-          selectFallback(endpoint);
-        } else {
-          setScenarioId(null);
-          setDraft(null);
         }
+      } else if (leftoverFallback) {
+        setScenarioId(null);
+        setDraft(null);
+        selectFallback(leftoverFallback);
+      } else {
+        showHome();
       }
       setPendingDelete(null);
+      setNotification({ message: 'Scenario deleted', severity: 'success' });
     } catch (error) {
       fail(error, 'The scenario could not be deleted');
     } finally {
@@ -436,18 +483,44 @@ export default function MockManagementView({ connectionParams }: MockManagementV
     setScreen('home');
   }
 
-  async function createApi() {
-    const group = groups.find((item) => item.id === apiGroup);
-    let nextPath = normalisePath(apiPath || `${group ? `/${group.id}/resource` : '/resource'}`);
-    if (apiGroup && groupIdForPath(nextPath) !== apiGroup && !apiPath.trim()) {
-      nextPath = `/${apiGroup}/resource`;
-    }
+  async function removeGroup(group: GroupModel) {
+    const targets = group.endpoints.flatMap((item) => {
+      const rows = item.scenarios.map((scenario) => ({ id: scenario.id, key: scenario.itemKey }));
+      if (item.fallback?.id) rows.push({ id: item.fallback.id, key: item.fallback.itemKey ?? item.fallback.id });
+      return rows;
+    });
     setBusy(true);
     try {
-      await registerExpectation(connectionParams, newResponseExpectation(apiMethod, nextPath));
+      await Promise.all(targets.map((item) => deleteExpectation(connectionParams, item.id)));
+      const gone = new Set(targets.flatMap((item) => [item.id, item.key]));
+      useDashboardStore.setState((state) => ({
+        activeExpectations: state.activeExpectations.filter((item) => {
+          if (gone.has(item.key)) return false;
+          const id = item.value['id'];
+          return typeof id !== 'string' || !gone.has(id);
+        }),
+      }));
+      remember(named.filter((item) => item.id !== group.id));
+      setPendingGroupDelete(null);
+      showHome();
+      setNotification({ message: `Group ${group.name} deleted`, severity: 'success' });
+    } catch (error) {
+      fail(error, 'The group could not be deleted');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createApi() {
+    const group = groups.find((item) => item.id === apiGroup);
+    const nextPath = normalisePath(apiPath || '/resource');
+    const groupName = group && apiGroup ? group.name : undefined;
+    setBusy(true);
+    try {
+      await registerExpectation(connectionParams, newResponseExpectation(apiMethod, nextPath, 0, groupName));
       setApiDialog(false);
       setApiPath('');
-      setPendingOpen(endpointId(apiMethod, nextPath));
+      setPendingOpen(endpointId(apiMethod, nextPath, apiGroup || groupIdForPath(nextPath)));
       setNotification({ message: 'Mock created', severity: 'success' });
     } catch (error) {
       fail(error, 'The mock could not be created');
@@ -492,7 +565,6 @@ export default function MockManagementView({ connectionParams }: MockManagementV
     setDraft(first && !first.advancedOnly && !first.truncated ? draftFromScenario(first) : null);
     if (!first) setFallback(draftFromFallback(pending.endpoint.fallback));
     setLoadedWholeId(first && !first.truncated ? first.id : null);
-    setTryItOpen(true);
   }
   const connected = connectionStatus === 'connected';
 
@@ -505,12 +577,14 @@ export default function MockManagementView({ connectionParams }: MockManagementV
           MockServer
         </Box>
         <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1.5, borderBottom: `1px solid ${SIDEBAR_EDGE}` }}>
-          <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setApiGroup(openGroupId ?? groups[0]?.id ?? ''); setApiDialog(true); }} sx={{ bgcolor: BRAND, textTransform: 'none', '&:hover': { bgcolor: '#0369a1' } }}>
+          <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setApiGroup(openGroupId ?? ''); setApiDialog(true); }} sx={{ bgcolor: BRAND, textTransform: 'none', '&:hover': { bgcolor: '#0369a1' } }}>
             New API Mock
           </Button>
-          <Button variant="contained" startIcon={<AddIcon />} onClick={() => setGroupDialog(true)} sx={{ bgcolor: '#1e293b', textTransform: 'none', '&:hover': { bgcolor: '#334155' } }}>
-            New Group
-          </Button>
+          {screen === 'home' && (
+            <Button variant="contained" startIcon={<AddIcon />} onClick={() => setGroupDialog(true)} sx={{ bgcolor: '#1e293b', textTransform: 'none', '&:hover': { bgcolor: '#334155' } }}>
+              New Group
+            </Button>
+          )}
         </Box>
         <Box sx={{ px: 1.5, py: 1, borderBottom: `1px solid ${SIDEBAR_EDGE}`, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
           <Button
@@ -579,6 +653,7 @@ export default function MockManagementView({ connectionParams }: MockManagementV
               }
             }}
             onCreateGroup={() => setGroupDialog(true)}
+            onDeleteGroup={setPendingGroupDelete}
           />
         ) : endpoint ? (
           <EndpointEditor
@@ -589,12 +664,14 @@ export default function MockManagementView({ connectionParams }: MockManagementV
             scenario={scenario}
             draft={draft}
             fallback={fallback ?? draftFromFallback(endpoint.fallback)}
+            groupName={groupedName()}
             busy={busy}
             saveBlocked={(editor === 'scenario' && ((scenarioTruncated && loadedWholeId !== scenarioIdKey) || (!!scenarioId && scenario?.id !== scenarioId)))
               || (editor === 'fallback' && fallbackTruncated && loadedFallbackId !== fallbackId)}
             connectionParams={connectionParams}
             tryItOpen={tryItOpen}
-            onToggleTryIt={() => setTryItOpen((open) => !open)}
+            onOpenTryIt={() => setTryItOpen(true)}
+            onCloseTryIt={() => setTryItOpen(false)}
             onMethod={setMethod}
             onPath={setPath}
             onDraft={setDraft}
@@ -645,14 +722,20 @@ export default function MockManagementView({ connectionParams }: MockManagementV
       <Dialog open={apiDialog} onClose={() => setApiDialog(false)} fullWidth maxWidth="xs">
         <DialogTitle>New API mock</DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
-          <TextField select label="Group" value={apiGroup} onChange={(event) => setApiGroup(event.target.value)}>
+          <TextField
+            select
+            label="Group"
+            value={apiGroup}
+            onChange={(event) => setApiGroup(event.target.value)}
+            helperText="A grouped mock only matches requests that send x-mockserver-group with this group name."
+          >
             <MenuItem value="">No group</MenuItem>
             {groups.map((group) => <MenuItem key={group.id} value={group.id}>{group.name}</MenuItem>)}
           </TextField>
           <TextField select label="Method" value={apiMethod} onChange={(event) => setApiMethod(event.target.value as (typeof METHODS)[number])}>
             {METHODS.map((item) => <MenuItem key={item} value={item}>{item}</MenuItem>)}
           </TextField>
-          <TextField label="Path" value={apiPath} onChange={(event) => setApiPath(event.target.value)} placeholder={apiGroup ? `/${apiGroup}/resource` : '/resource'} />
+          <TextField label="Path" value={apiPath} onChange={(event) => setApiPath(event.target.value)} placeholder="/resource" />
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setApiDialog(false)}>Cancel</Button>
@@ -665,8 +748,18 @@ export default function MockManagementView({ connectionParams }: MockManagementV
         title="Delete scenario"
         message="This removes the expectation from the server. Recorded traffic is left as it is."
         confirmLabel="Delete"
-        onConfirm={() => { void removeScenario(); }}
+        onConfirm={() => { if (pendingDelete) void removeScenario(pendingDelete); }}
         onClose={() => setPendingDelete(null)}
+      />
+      <ConfirmDialog
+        open={pendingGroupDelete !== null}
+        title="Delete group"
+        message={pendingGroupDelete
+          ? `This removes ${pendingGroupDelete.name} and every mock in it from the server. Recorded traffic is left as it is.`
+          : ''}
+        confirmLabel="Delete"
+        onConfirm={() => { if (pendingGroupDelete) void removeGroup(pendingGroupDelete); }}
+        onClose={() => setPendingGroupDelete(null)}
       />
     </Box>
     </ThemeProvider>
@@ -730,10 +823,12 @@ function Home({
   groups,
   onOpen,
   onCreateGroup,
+  onDeleteGroup,
 }: {
   groups: GroupModel[];
   onOpen: (group: GroupModel) => void;
   onCreateGroup: () => void;
+  onDeleteGroup: (group: GroupModel) => void;
 }) {
   return (
     <Box sx={{ flex: 1, overflow: 'auto', p: 4, bgcolor: PAGE }} data-testid="manage-home">
@@ -751,19 +846,32 @@ function Home({
             return (
               <Box
                 key={group.id}
-                component="button"
-                type="button"
-                onClick={() => onOpen(group)}
-                sx={{ textAlign: 'left', bgcolor: '#fff', border: `1px solid ${LINE}`, borderRadius: 3, p: 2.5, cursor: 'pointer', color: 'inherit', '&:hover': { borderColor: '#60a5fa', boxShadow: '0 4px 12px rgba(15,23,42,0.08)' } }}
+                sx={{ textAlign: 'left', bgcolor: '#fff', border: `1px solid ${LINE}`, borderRadius: 3, p: 2.5, color: 'inherit', '&:hover': { borderColor: '#60a5fa', boxShadow: '0 4px 12px rgba(15,23,42,0.08)' } }}
               >
                 <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', mb: 2 }}>
-                  <Box sx={{ width: 40, height: 40, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: BRAND_SOFT, color: BRAND }}>{groupIcon(group.id)}</Box>
-                  <Box>
-                    <Box sx={{ fontWeight: 700 }}>{group.name}</Box>
-                    <Box sx={{ fontSize: 12, color: MUTED }}>{group.endpoints.length} endpoint{group.endpoints.length === 1 ? '' : 's'}</Box>
+                  <Box
+                    component="button"
+                    type="button"
+                    aria-label={`Open group ${group.name}`}
+                    onClick={() => onOpen(group)}
+                    sx={{ display: 'flex', gap: 1.5, alignItems: 'center', flex: 1, minWidth: 0, bgcolor: 'transparent', border: 0, p: 0, cursor: 'pointer', color: 'inherit', textAlign: 'left' }}
+                  >
+                    <Box sx={{ width: 40, height: 40, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: BRAND_SOFT, color: BRAND }}>{groupIcon(group.id)}</Box>
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Box sx={{ fontWeight: 700 }}>{group.name}</Box>
+                      <Box sx={{ fontSize: 12, color: MUTED }}>{group.endpoints.length} endpoint{group.endpoints.length === 1 ? '' : 's'}</Box>
+                    </Box>
                   </Box>
+                  <IconButton
+                    aria-label={`Delete group ${group.name}`}
+                    size="small"
+                    onClick={() => onDeleteGroup(group)}
+                    sx={{ color: MUTED }}
+                  >
+                    <DeleteOutlineIcon fontSize="small" />
+                  </IconButton>
                 </Box>
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, cursor: 'pointer' }} onClick={() => onOpen(group)}>
                   {group.endpoints.slice(0, 4).map((item) => {
                     const tone = methodTone(item.method, false);
                     return (
@@ -777,7 +885,7 @@ function Home({
                     );
                   })}
                 </Box>
-                <Box sx={{ mt: 2, pt: 2, borderTop: `1px solid #f1f5f9`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Box onClick={() => onOpen(group)} sx={{ mt: 2, pt: 2, borderTop: `1px solid #f1f5f9`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
                   <Box sx={{ fontSize: 11, fontWeight: 700, px: 1, py: 0.5, borderRadius: 1, color: activeCount ? '#047857' : MUTED, bgcolor: activeCount ? '#ecfdf5' : '#f1f5f9', border: `1px solid ${activeCount ? '#a7f3d0' : LINE}` }}>
                     {group.endpoints.length === 0 ? 'Empty' : activeCount ? `${activeCount} Mock Active` : 'All Real API'}
                   </Box>
@@ -810,13 +918,14 @@ function tryItJson(
   scenario: ScenarioModel | undefined,
   draft: ScenarioDraft | null,
   fallback: FallbackDraft,
+  groupName?: string,
 ): string {
   if (editor === 'fallback') {
     if (fallback.mode === 'proxy' && !fallback.upstream.trim()) {
       return JSON.stringify({ httpRequest: { method, path } });
     }
     try {
-      return JSON.stringify(applyFallbackDraft(endpoint.fallback?.raw, fallback, method, path));
+      return JSON.stringify(applyFallbackDraft(endpoint.fallback?.raw, fallback, method, path, groupName));
     } catch {
       return JSON.stringify({ httpRequest: { method, path } });
     }
@@ -829,7 +938,8 @@ function tryItJson(
     const seed = 'httpResponse' in raw || 'httpError' in raw || 'httpForward' in raw
       ? raw
       : { ...raw, httpResponse: { statusCode: 200 } };
-    return JSON.stringify(applyScenarioDraft(seed, draft, method, path, endpoint.pathWire));
+    const withGroup = { ...draft, rules: ensureGroupHeader(draft.rules, groupName) };
+    return JSON.stringify(applyScenarioDraft(seed, withGroup, method, path, endpoint.pathWire));
   }
   return JSON.stringify({ httpRequest: { method, path } });
 }
@@ -842,6 +952,7 @@ function EndpointEditor({
   scenario,
   draft,
   fallback,
+  groupName,
   busy,
   saveBlocked,
   onMethod,
@@ -857,7 +968,8 @@ function EndpointEditor({
   onAdvanced,
   connectionParams,
   tryItOpen,
-  onToggleTryIt,
+  onOpenTryIt,
+  onCloseTryIt,
 }: {
   endpoint: EndpointModel;
   method: string;
@@ -866,11 +978,13 @@ function EndpointEditor({
   scenario?: ScenarioModel;
   draft: ScenarioDraft | null;
   fallback: FallbackDraft;
+  groupName?: string;
   busy: boolean;
   saveBlocked?: boolean;
   connectionParams: ConnectionParams;
   tryItOpen: boolean;
-  onToggleTryIt: () => void;
+  onOpenTryIt: () => void;
+  onCloseTryIt: () => void;
   onMethod: (method: string) => void;
   onPath: (path: string) => void;
   onDraft: (draft: ScenarioDraft) => void;
@@ -896,10 +1010,10 @@ function EndpointEditor({
           <Button onClick={onDiscard} sx={{ textTransform: 'none' }}>Discard</Button>
           <Button
             startIcon={<SendOutlinedIcon />}
-            onClick={onToggleTryIt}
+            onClick={onOpenTryIt}
             sx={{ textTransform: 'none' }}
           >
-            {tryItOpen ? 'Hide Try It' : 'Try It'}
+            Try It
           </Button>
           <Button variant="contained" startIcon={<SaveIcon />} disabled={busy || saveBlocked || scenario?.advancedOnly === true && editor === 'scenario'} onClick={onSave} sx={{ bgcolor: BRAND, textTransform: 'none' }}>Save Mock</Button>
         </Box>
@@ -949,16 +1063,6 @@ function EndpointEditor({
           </Box>
         </Box>
         <Box sx={{ flex: 1, overflow: 'auto', p: 3, bgcolor: PAGE }}>
-          {tryItOpen && (
-            <Box sx={{ mb: 2 }}>
-              <LiveResponseWidget
-                key={`${endpoint.id}:${editor}:${scenario?.id ?? 'fallback'}`}
-                expectationJson={tryItJson(method, path, editor, endpoint, scenario, draft, fallback)}
-                connectionParams={connectionParams}
-                onClose={onToggleTryIt}
-              />
-            </Box>
-          )}
           {editor === 'scenario' && scenario?.advancedOnly && (
             <Box sx={{ bgcolor: '#fff', border: `1px solid ${LINE}`, borderRadius: 2, p: 2 }}>
               <Box sx={{ fontWeight: 700, mb: 1 }}>Custom action</Box>
@@ -967,11 +1071,61 @@ function EndpointEditor({
             </Box>
           )}
           {editor === 'scenario' && scenario && draft && !scenario.advancedOnly && (
-            <ScenarioForm draft={draft} onChange={onDraft} />
+            <ScenarioForm
+              draft={draft}
+              onChange={onDraft}
+              fallbackTakesFirst={
+                endpoint.fallback?.priority != null && scenario.priority <= endpoint.fallback.priority
+              }
+            />
           )}
-          {editor === 'fallback' && <FallbackForm draft={fallback} onChange={onFallback} />}
+          {editor === 'fallback' && (
+            <FallbackForm
+              draft={fallback}
+              onChange={onFallback}
+              method={method}
+              path={path}
+              catchAllTitle={catchAllScenarioTitle(endpoint)}
+              fallbackTakesFirst={
+                endpoint.fallback?.priority != null
+                && endpoint.scenarios.some((item) => item.active && item.priority <= endpoint.fallback!.priority!)
+              }
+            />
+          )}
         </Box>
       </Box>
+      <Drawer
+        anchor="right"
+        open={tryItOpen}
+        onClose={onCloseTryIt}
+        slotProps={{
+          backdrop: { sx: { backgroundColor: 'rgba(15, 23, 42, 0.55)' } },
+          paper: {
+            sx: {
+              width: { xs: '100%', sm: 880 },
+              maxWidth: '96vw',
+              bgcolor: '#ffffff',
+              color: '#1e293b',
+              boxShadow: '-8px 0 24px rgba(15, 23, 42, 0.18)',
+            },
+          },
+        }}
+      >
+        <Box
+          sx={{ width: '100%', height: '100%', overflow: 'hidden', p: 0, boxSizing: 'border-box' }}
+          role="dialog"
+          aria-label="Try It"
+        >
+          {tryItOpen && (
+            <LiveResponseWidget
+              key={`${endpoint.id}:${editor}:${scenario?.id ?? 'fallback'}`}
+              expectationJson={tryItJson(method, path, editor, endpoint, scenario, draft, fallback, groupName)}
+              connectionParams={connectionParams}
+              onClose={onCloseTryIt}
+            />
+          )}
+        </Box>
+      </Drawer>
     </Box>
   );
 }
@@ -980,7 +1134,15 @@ function cardSx() {
   return { bgcolor: '#fff', border: `1px solid ${LINE}`, borderRadius: 2, mb: 3 } as const;
 }
 
-function ScenarioForm({ draft, onChange }: { draft: ScenarioDraft; onChange: (draft: ScenarioDraft) => void }) {
+function ScenarioForm({
+  draft,
+  onChange,
+  fallbackTakesFirst,
+}: {
+  draft: ScenarioDraft;
+  onChange: (draft: ScenarioDraft) => void;
+  fallbackTakesFirst?: boolean;
+}) {
   function patch(partial: Partial<ScenarioDraft>) {
     onChange({ ...draft, ...partial });
   }
@@ -995,23 +1157,31 @@ function ScenarioForm({ draft, onChange }: { draft: ScenarioDraft; onChange: (dr
           <Button size="small" onClick={() => patch({ rules: [...draft.rules, blankRule()] })} sx={{ textTransform: 'none' }}>+ Add Rule</Button>
         </Box>
         <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-          <Box sx={{ fontSize: 12, color: MUTED }}>Execute this scenario when the request matches these rules. A value without regex characters is an exact match.</Box>
+          <Box sx={{ fontSize: 12, color: MUTED }}>Execute this scenario when the request matches these rules. A value without regex characters is an exact match. The x-mockserver-group header is added for grouped mocks so the same path can live in more than one group.</Box>
+          {fallbackTakesFirst ? (
+            <Box role="status" sx={{ bgcolor: '#fff7ed', border: '1px solid #fdba74', color: '#9a3412', borderRadius: 1, p: 1.5, fontSize: 13 }}>
+              The unmatched fallback has the same or higher priority and does not need these extra rules, so it matches first and this scenario never runs. Open Unmatched fallback and Save Mock to give the fallback unmatched priority.
+            </Box>
+          ) : null}
           {draft.rules.length === 0 && <Box sx={{ fontSize: 13, color: MUTED }}>No extra rules. This scenario matches every request to the method and path.</Box>}
-          {draft.rules.map((rule) => (
+          {draft.rules.map((rule) => {
+            const groupHeader = isGroupHeaderRule(rule);
+            return (
             <Box key={rule.id} sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-              <TextField select size="small" value={rule.kind} onChange={(event) => patchRule(rule.id, { kind: event.target.value as MatchKind })} aria-label="Rule kind" sx={{ width: 160 }}>
+              <TextField select size="small" value={rule.kind} disabled={groupHeader} onChange={(event) => patchRule(rule.id, { kind: event.target.value as MatchKind })} aria-label="Rule kind" sx={{ width: 160 }}>
                 {RULE_KINDS.map((item) => <MenuItem key={item.value} value={item.value}>{item.label}</MenuItem>)}
               </TextField>
-              <TextField size="small" value={rule.key} onChange={(event) => patchRule(rule.id, { key: event.target.value })} aria-label="Rule key" placeholder="Key" sx={{ width: 160 }} />
-              <TextField select size="small" value={rule.op} onChange={(event) => patchRule(rule.id, { op: event.target.value as MatchRule['op'] })} aria-label="Rule operator" sx={{ width: 130 }}>
+              <TextField size="small" value={rule.key} disabled={groupHeader} onChange={(event) => patchRule(rule.id, { key: event.target.value })} aria-label="Rule key" placeholder="Key" sx={{ width: 160 }} />
+              <TextField select size="small" value={rule.op} disabled={groupHeader} onChange={(event) => patchRule(rule.id, { op: event.target.value as MatchRule['op'] })} aria-label="Rule operator" sx={{ width: 130 }}>
                 <MenuItem value="equals">Equals</MenuItem>
                 <MenuItem value="regex">Regex</MenuItem>
                 <MenuItem value="contains">Contains</MenuItem>
               </TextField>
-              <TextField size="small" value={rule.value} onChange={(event) => patchRule(rule.id, { value: event.target.value })} aria-label="Rule value" placeholder="Value" sx={{ flex: 1, minWidth: 120 }} />
-              <IconButton aria-label="Remove rule" onClick={() => patch({ rules: draft.rules.filter((item) => item.id !== rule.id) })}><DeleteOutlineIcon /></IconButton>
+              <TextField size="small" value={rule.value} disabled={groupHeader} onChange={(event) => patchRule(rule.id, { value: event.target.value })} aria-label="Rule value" placeholder="Value" sx={{ flex: 1, minWidth: 120 }} />
+              <IconButton aria-label="Remove rule" disabled={groupHeader} onClick={() => patch({ rules: draft.rules.filter((item) => item.id !== rule.id) })}><DeleteOutlineIcon /></IconButton>
             </Box>
-          ))}
+            );
+          })}
         </Box>
       </Box>
       <Box sx={cardSx()}>
@@ -1066,7 +1236,25 @@ function ScenarioForm({ draft, onChange }: { draft: ScenarioDraft; onChange: (dr
   );
 }
 
-function FallbackForm({ draft, onChange }: { draft: FallbackDraft; onChange: (draft: FallbackDraft) => void }) {
+function catchAllScenarioTitle(endpoint: EndpointModel): string | undefined {
+  return endpoint.scenarios.find((item) => item.active && !item.rules.some((rule) => !isGroupHeaderRule(rule)))?.title;
+}
+
+function FallbackForm({
+  draft,
+  onChange,
+  method,
+  path,
+  catchAllTitle,
+  fallbackTakesFirst,
+}: {
+  draft: FallbackDraft;
+  onChange: (draft: FallbackDraft) => void;
+  method: string;
+  path: string;
+  catchAllTitle?: string;
+  fallbackTakesFirst?: boolean;
+}) {
   return (
     <Box sx={cardSx()}>
       <Box sx={{ px: 2, py: 1.5, borderBottom: `1px solid ${LINE}`, bgcolor: PAGE }}>
@@ -1085,9 +1273,19 @@ function FallbackForm({ draft, onChange }: { draft: FallbackDraft; onChange: (dr
       </Box>
       {draft.mode === 'proxy' ? (
         <Box sx={{ p: 2 }}>
-          <Box sx={{ bgcolor: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e40af', borderRadius: 1, p: 1.5, fontSize: 13, mb: 2 }}>
-            Unmatched requests are forwarded to the upstream URL below.
-          </Box>
+          {catchAllTitle ? (
+            <Box role="status" sx={{ bgcolor: '#fff7ed', border: '1px solid #fdba74', color: '#9a3412', borderRadius: 1, p: 1.5, fontSize: 13, mb: 2 }}>
+              {catchAllTitle} matches every {method} {path} in this group, so this fallback never runs. Add matching conditions to that scenario, or delete it, then Try It again.
+            </Box>
+          ) : fallbackTakesFirst ? (
+            <Box role="status" sx={{ bgcolor: '#fff7ed', border: '1px solid #fdba74', color: '#9a3412', borderRadius: 1, p: 1.5, fontSize: 13, mb: 2 }}>
+              This fallback is the same or higher priority as a scenario, so it matches first even when those extra rules would hit. Save Mock to set unmatched priority, then Try It again.
+            </Box>
+          ) : (
+            <Box sx={{ bgcolor: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e40af', borderRadius: 1, p: 1.5, fontSize: 13, mb: 2 }}>
+              Unmatched requests keep this method and path and are forwarded to the host below (for example GET /health to https://google.com becomes GET https://google.com/health).
+            </Box>
+          )}
           <Box sx={{ fontSize: 12, fontWeight: 700, color: MUTED, mb: 0.5 }}>TARGET UPSTREAM URL</Box>
           <TextField fullWidth size="small" value={draft.upstream} onChange={(event) => onChange({ ...draft, upstream: event.target.value })} placeholder="https://api.internal.example/service" aria-label="Upstream URL" />
         </Box>

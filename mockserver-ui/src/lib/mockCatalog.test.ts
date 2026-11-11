@@ -5,10 +5,13 @@ import {
   applyScenarioDraft,
   buildCatalog,
   classifyMatcher,
+  nextScenarioPriority,
   draftFromScenario,
   encodeMatcher,
   forwardFromUrl,
   groupIdForPath,
+  GROUP_HEADER,
+  ensureGroupHeader,
   newResponseExpectation,
   retargetExpectation,
 } from './mockCatalog';
@@ -63,6 +66,41 @@ describe('mockCatalog', () => {
     const endpoint = groups[0]?.endpoints[0];
     expect(endpoint?.scenarios.map((s) => s.id)).toEqual(['hit']);
     expect(endpoint?.fallback).toMatchObject({ mode: 'mock', statusCode: 404, id: 'miss' });
+  });
+
+  it('gives a new scenario a higher priority than an equal-priority catch-all forward', () => {
+    const groups = buildCatalog([
+      item('fwd', {
+        id: 'fwd',
+        priority: 1,
+        httpRequest: { method: 'GET', path: '/health', headers: { [GROUP_HEADER]: ['Lab 1'] } },
+        httpForward: { host: 'google.com', port: 443, scheme: 'HTTPS' },
+      }),
+      item('hit', {
+        id: 'hit',
+        priority: 1,
+        httpRequest: {
+          method: 'GET',
+          path: '/health',
+          headers: { [GROUP_HEADER]: ['Lab 1'], a: ['.*1.*'] },
+        },
+        httpResponse: { statusCode: 200, body: {} },
+      }),
+    ]);
+    const endpoint = groups[0]?.endpoints[0];
+    expect(endpoint?.fallback).toMatchObject({ id: 'fwd', mode: 'proxy', priority: 1 });
+    expect(endpoint?.scenarios.map((s) => s.id)).toEqual(['hit']);
+    expect(nextScenarioPriority(endpoint!)).toBe(2);
+  });
+
+  it('forces a previously equal-priority forward down to unmatched priority on save', () => {
+    const saved = applyFallbackDraft(
+      { id: 'fwd', priority: 1, httpRequest: { method: 'GET', path: '/health' } },
+      { mode: 'proxy', upstream: 'https://google.com', statusCode: 404, body: '' },
+      'GET',
+      '/health',
+    );
+    expect(saved).toMatchObject({ id: 'fwd', priority: -10 });
   });
 
   it('leaves an OpenAPI-only expectation out of the catalog', () => {
@@ -123,6 +161,41 @@ describe('mockCatalog', () => {
       httpRequest: { method: 'POST', path: '/users' },
       httpResponse: { statusCode: 200 },
     });
+    expect(newResponseExpectation('GET', '/hello', 0, 'Payments')).toMatchObject({
+      httpRequest: {
+        method: 'GET',
+        path: '/hello',
+        headers: { [GROUP_HEADER]: ['Payments'] },
+      },
+    });
+  });
+
+  it('keeps the same path in separate groups when x-mockserver-group differs', () => {
+    const groups = buildCatalog([
+      item('pay', {
+        id: 'pay',
+        httpRequest: { method: 'GET', path: '/hello', headers: { [GROUP_HEADER]: ['Payments'] } },
+        httpResponse: { statusCode: 200, body: { from: 'payments' } },
+      }),
+      item('ord', {
+        id: 'ord',
+        httpRequest: { method: 'GET', path: '/hello', headers: { [GROUP_HEADER]: ['Orders'] } },
+        httpResponse: { statusCode: 201, body: { from: 'orders' } },
+      }),
+    ]);
+    expect(groups.map((g) => g.name).sort()).toEqual(['Orders', 'Payments']);
+    expect(groups.find((g) => g.id === 'payments')?.endpoints[0]?.path).toBe('/hello');
+    expect(groups.find((g) => g.id === 'orders')?.endpoints[0]?.scenarios[0]?.statusCode).toBe(201);
+    expect(groups.find((g) => g.id === 'payments')?.endpoints[0]?.id).not.toBe(
+      groups.find((g) => g.id === 'orders')?.endpoints[0]?.id,
+    );
+  });
+
+  it('pins a group header rule without duplicating it', () => {
+    const once = ensureGroupHeader([], 'Payments');
+    expect(once).toEqual([expect.objectContaining({ kind: 'header', key: GROUP_HEADER, op: 'equals', value: 'Payments' })]);
+    expect(ensureGroupHeader(once, 'Payments')).toHaveLength(1);
+    expect(ensureGroupHeader(once, undefined)).toEqual([]);
   });
 
   it('marks a conditional forward as advanced-only and leaves it unchanged on save', () => {

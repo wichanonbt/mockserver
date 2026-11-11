@@ -1,7 +1,8 @@
 /**
  * Groups active HTTP expectations the way the Manage view shows them:
- * a service (first path segment), an endpoint (method + path), then scenarios
- * and one lower-priority fallback for requests none of those scenarios match.
+ * a service (`x-mockserver-group` header, else the first path segment), an
+ * endpoint (method + path inside that group), then scenarios and one
+ * lower-priority fallback for requests none of those scenarios match.
  */
 import type { JsonListItem } from '../types';
 
@@ -51,6 +52,8 @@ export interface FallbackModel {
   statusCode: number;
   body: string;
   truncated: boolean;
+  /** Match priority of the stored fallback expectation. Higher wins; unmatched fallbacks are -10. */
+  priority?: number;
   raw?: Record<string, unknown>;
 }
 
@@ -126,6 +129,25 @@ export function saveNamedGroups(groups: NamedGroup[]): void {
 export function slugGroupId(name: string): string {
   const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   return slug || 'group';
+}
+
+/** Request header that selects which catalog group a mock belongs to. */
+export const GROUP_HEADER = 'x-mockserver-group';
+
+export function isGroupHeaderRule(rule: MatchRule): boolean {
+  return rule.kind === 'header' && rule.key.toLowerCase() === GROUP_HEADER;
+}
+
+export function groupHeaderValue(rules: MatchRule[]): string | undefined {
+  const value = rules.find(isGroupHeaderRule)?.value.trim();
+  return value || undefined;
+}
+
+/** Keep exactly one `x-mockserver-group` equals rule when a group name is set. */
+export function ensureGroupHeader(rules: MatchRule[], groupName: string | undefined): MatchRule[] {
+  const without = rules.filter((item) => !isGroupHeaderRule(item));
+  if (!groupName?.trim()) return without;
+  return [rule('header', GROUP_HEADER, 'equals', groupName.trim()), ...without];
 }
 
 export function groupIdForPath(path: string): string {
@@ -357,7 +379,7 @@ function scenarioTitle(action: ScenarioAction, statusCode: number, rules: MatchR
   if (action === 'forward') return 'Forward to upstream';
   if (action === 'other') return 'Custom action';
   const phrase = statusText(statusCode) || `HTTP ${statusCode}`;
-  const first = rules[0];
+  const first = rules.find((item) => !isGroupHeaderRule(item));
   return first ? `${phrase} · ${first.key}` : phrase;
 }
 
@@ -413,7 +435,7 @@ function parseItem(item: JsonListItem): ParsedExpectation | undefined {
     path,
     pathWire: typeof req['path'] === 'string' ? undefined : req['path'],
     priority: scenario.priority,
-    extra: rules.length > 0,
+    extra: rules.some((item) => !isGroupHeaderRule(item)),
     action,
     scenario,
     forwardUrl: action === 'forward' ? forwardToUrl(raw['httpForward']) : '',
@@ -450,23 +472,48 @@ function toFallback(item: ParsedExpectation): FallbackModel {
     statusCode: item.action === 'response' ? item.scenario.statusCode : 404,
     body: item.action === 'response' ? item.scenario.body : '{\n  "error": "Not Found"\n}',
     truncated: item.scenario.truncated,
+    priority: item.priority,
     raw: item.scenario.raw,
   };
+}
+
+/** Next scenario priority: one above every existing scenario and the unmatched fallback. */
+export function nextScenarioPriority(endpoint: Pick<EndpointModel, 'scenarios' | 'fallback'>): number {
+  return Math.max(
+    0,
+    ...endpoint.scenarios.map((item) => item.priority),
+    endpoint.fallback?.priority ?? Number.NEGATIVE_INFINITY,
+  ) + 1;
 }
 
 export function scenarioFromValue(value: Record<string, unknown>, key = 'loaded'): ScenarioModel | undefined {
   return parseItem({ key, value })?.scenario;
 }
 
+function groupRef(rules: MatchRule[], path: string, names: NamedGroup[]): { id: string; name: string } {
+  const headerName = groupHeaderValue(rules);
+  if (headerName) {
+    const id = slugGroupId(headerName);
+    const named = names.find((item) => item.id === id || item.name === headerName);
+    return { id, name: named?.name ?? headerName };
+  }
+  const id = groupIdForPath(path);
+  const named = names.find((item) => item.id === id);
+  return { id, name: named?.name ?? titleCase(id) };
+}
+
 export function buildCatalog(items: JsonListItem[], names: NamedGroup[] = []): GroupModel[] {
   const byEndpoint = new Map<string, ParsedExpectation[]>();
+  const groupOf = new Map<string, { id: string; name: string }>();
   for (const item of items) {
     const parsed = parseItem(item);
     if (!parsed) continue;
-    const id = `${parsed.method} ${parsed.path}`;
+    const group = groupRef(parsed.scenario.rules, parsed.path, names);
+    const id = endpointId(parsed.method, parsed.path, group.id);
     const list = byEndpoint.get(id) ?? [];
     list.push(parsed);
     byEndpoint.set(id, list);
+    groupOf.set(id, group);
   }
 
   const groups = new Map<string, GroupModel>();
@@ -475,13 +522,13 @@ export function buildCatalog(items: JsonListItem[], names: NamedGroup[] = []): G
     groups.set(named.id, { id: named.id, name: named.name, endpoints: [] });
   }
 
-  for (const [endpointId, parsed] of byEndpoint) {
+  for (const [id, parsed] of byEndpoint) {
     const first = parsed[0];
     if (!first) continue;
-    const groupId = groupIdForPath(first.path);
-    const group = groups.get(groupId) ?? {
-      id: groupId,
-      name: nameById.get(groupId) ?? titleCase(groupId),
+    const ref = groupOf.get(id) ?? groupRef(first.scenario.rules, first.path, names);
+    const group = groups.get(ref.id) ?? {
+      id: ref.id,
+      name: nameById.get(ref.id) ?? ref.name,
       endpoints: [],
     };
     const fallbackParsed = pickFallback(parsed);
@@ -492,7 +539,7 @@ export function buildCatalog(items: JsonListItem[], names: NamedGroup[] = []): G
     const pathWires = parsed.map((item) => item.pathWire);
     const pathWire = pathWires.every((w) => JSON.stringify(w) === JSON.stringify(pathWires[0])) ? pathWires[0] : undefined;
     group.endpoints.push({
-      id: endpointId,
+      id,
       method: first.method,
       path: first.path,
       pathWire,
@@ -500,7 +547,7 @@ export function buildCatalog(items: JsonListItem[], names: NamedGroup[] = []): G
       scenarios,
       fallback: fallbackParsed ? toFallback(fallbackParsed) : undefined,
     });
-    groups.set(groupId, group);
+    groups.set(ref.id, group);
   }
 
   return [...groups.values()]
@@ -693,15 +740,17 @@ export function applyFallbackDraft(
   draft: FallbackDraft,
   method: string,
   path: string,
+  groupName?: string,
 ): Record<string, unknown> {
   const next: Record<string, unknown> = raw ? structuredClone(raw) : {};
   const req = isRecord(next['httpRequest']) ? { ...next['httpRequest'] } : {};
   req['method'] = method;
   req['path'] = path;
   delete req['pathParameters'];
-  delete req['headers'];
   delete req['queryStringParameters'];
   delete req['body'];
+  if (groupName?.trim()) req['headers'] = { [GROUP_HEADER]: [groupName.trim()] };
+  else delete req['headers'];
   next['httpRequest'] = req;
   delete next['httpResponse'];
   delete next['httpError'];
@@ -725,10 +774,12 @@ export function applyFallbackDraft(
   return next;
 }
 
-export function newResponseExpectation(method: string, path: string, priority = 0): Record<string, unknown> {
+export function newResponseExpectation(method: string, path: string, priority = 0, groupName?: string): Record<string, unknown> {
+  const httpRequest: Record<string, unknown> = { method, path };
+  if (groupName?.trim()) httpRequest['headers'] = { [GROUP_HEADER]: [groupName.trim()] };
   return {
     priority,
-    httpRequest: { method, path },
+    httpRequest,
     httpResponse: {
       statusCode: 200,
       headers: { 'Content-Type': ['application/json'] },
@@ -753,7 +804,8 @@ export function retargetExpectation(
   return next;
 }
 
-export function endpointId(method: string, path: string): string {
+export function endpointId(method: string, path: string, groupId = ''): string {
   const normalised = path.startsWith('/') ? path : `/${path}`;
-  return `${method.trim().toUpperCase()} ${normalised}`;
+  const core = `${method.trim().toUpperCase()} ${normalised}`;
+  return groupId ? `${groupId} ${core}` : core;
 }

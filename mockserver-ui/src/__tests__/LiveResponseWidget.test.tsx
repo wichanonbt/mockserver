@@ -4,6 +4,28 @@ import { ThemeProvider } from '@mui/material/styles';
 import { buildTheme } from '../theme';
 import LiveResponseWidget from '../components/LiveResponseWidget';
 
+vi.mock('../components/JsonEditorLazy', () => ({
+  default: ({
+    value,
+    onChange,
+    ariaLabel,
+    placeholder,
+  }: {
+    value: string;
+    onChange: (value: string) => void;
+    ariaLabel?: string;
+    placeholder?: string;
+  }) => (
+    <textarea
+      aria-label={ariaLabel}
+      placeholder={placeholder}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      data-testid="json-editor"
+    />
+  ),
+}));
+
 /**
  * The dashboard is served by MockServer itself, so its own origin is a valid
  * mock target. Mirror that here by deriving the connection params from the jsdom
@@ -19,6 +41,7 @@ interface StubResponse {
   ok?: boolean;
   status?: number;
   statusText?: string;
+  type?: ResponseType;
   headers?: Record<string, string>;
   body?: string;
   /** Spy used in place of Response.text(), to prove an oversize body is never read. */
@@ -59,6 +82,7 @@ function stubFetch(options: {
       ok: live.ok ?? true,
       status: live.status ?? 200,
       statusText: live.statusText ?? 'OK',
+      type: live.type ?? 'basic',
       headers: new Headers(live.headers ?? {}),
       text: live.text ?? (async () => live.body ?? ''),
     } as unknown as Response;
@@ -69,7 +93,7 @@ function stubFetch(options: {
 
 function widget(expectationJson: string, params = sameOriginParams) {
   return (
-    <ThemeProvider theme={buildTheme('dark')}>
+    <ThemeProvider theme={buildTheme('light')}>
       <LiveResponseWidget
         expectationJson={expectationJson}
         connectionParams={params}
@@ -92,6 +116,37 @@ function input(label: string): HTMLInputElement | HTMLTextAreaElement {
 
 function sendButton(): HTMLButtonElement {
   return screen.getByRole('button', { name: /Send request/i }) as HTMLButtonElement;
+}
+
+function openTryTab(name: 'Params' | 'Headers' | 'Body') {
+  fireEvent.click(screen.getByRole('tab', { name: new RegExp(`^${name}`) }));
+}
+
+function kvText(kind: 'Query' | 'Header'): string {
+  openTryTab(kind === 'Query' ? 'Params' : 'Headers');
+  const lines: string[] = [];
+  for (let i = 1; i < 20; i++) {
+    const key = screen.queryByLabelText(`${kind} key ${i}`) as HTMLInputElement | null;
+    const value = screen.queryByLabelText(`${kind} value ${i}`) as HTMLInputElement | null;
+    if (!key) break;
+    if (!key.value && !value?.value) continue;
+    lines.push(kind === 'Query' ? `${key.value}=${value?.value ?? ''}` : `${key.value}: ${value?.value ?? ''}`);
+  }
+  return lines.join('\n');
+}
+
+function setHeaderField(text: string) {
+  openTryTab('Headers');
+  const idx = text.indexOf(':');
+  const name = idx < 0 ? text : text.slice(0, idx).trim();
+  const value = idx < 0 ? '' : text.slice(idx + 1).trim();
+  fireEvent.change(screen.getByLabelText('Header key 1'), { target: { value: name } });
+  fireEvent.change(screen.getByLabelText('Header value 1'), { target: { value: value } });
+}
+
+function bodyField(): HTMLInputElement | HTMLTextAreaElement {
+  openTryTab('Body');
+  return input('Live request body');
 }
 
 beforeEach(() => {
@@ -120,9 +175,9 @@ describe('LiveResponseWidget request derivation', () => {
 
     expect(input('Live request method').value).toBe('POST');
     expect(input('Live request path').value).toBe('/api/orders');
-    expect(input('Live request query').value).toBe('page=2\nsort=name');
-    expect(input('Live request headers').value).toBe('Accept: application/json');
-    expect(input('Live request body').value).toBe('{"id":1}');
+    expect(kvText('Query')).toBe('page=2\nsort=name');
+    expect(kvText('Header')).toBe('Accept: application/json');
+    expect(bodyField().value).toBe('{"id":1}');
     expect(screen.queryByTestId('try-it-derivation-notes')).toBeNull();
     expect(sendButton()).toBeEnabled();
   });
@@ -174,7 +229,7 @@ describe('LiveResponseWidget request derivation', () => {
       }),
     );
 
-    expect(input('Live request headers').value).toBe('Accept: application/json');
+    expect(kvText('Header')).toBe('Accept: application/json');
     const notes = screen.getByTestId('try-it-derivation-notes').textContent ?? '';
     expect(notes).toContain('headers');
     expect(notes).toContain('!X-Forbidden');
@@ -192,7 +247,7 @@ describe('LiveResponseWidget request derivation', () => {
         },
       }),
     );
-    expect(input('Live request headers').value).toBe('Accept: text/plain');
+    expect(kvText('Header')).toBe('Accept: text/plain');
   });
 
   it('substitutes literal path parameters into a templated path', async () => {
@@ -220,7 +275,7 @@ describe('LiveResponseWidget request derivation', () => {
     );
     // No Cookie header (fetch would strip it) and no cookie input at all — a page
     // cannot set one, so offering a field would promise something undeliverable.
-    expect(input('Live request headers').value).toBe('');
+    expect(kvText('Header')).toBe('');
     expect(screen.queryByLabelText('Live request cookies')).toBeNull();
     const notes = screen.getByTestId('try-it-derivation-notes').textContent ?? '';
     expect(notes).toContain('cookies (browser-blocked)');
@@ -267,7 +322,7 @@ describe('LiveResponseWidget request derivation', () => {
         httpRequest: { path: '/api/users', headers: { [header]: ['x'], Accept: ['text/plain'] } },
       }),
     );
-    expect(input('Live request headers').value).toBe('Accept: text/plain');
+    expect(kvText('Header')).toBe('Accept: text/plain');
     const notes = screen.getByTestId('try-it-derivation-notes').textContent ?? '';
     expect(notes).toContain('browser-blocked');
     expect(notes).toContain(header);
@@ -287,7 +342,7 @@ describe('LiveResponseWidget request derivation', () => {
     await renderWidget(
       JSON.stringify({ httpRequest: { path: '/api/users', headers: { 'X-Count': [value] } } }),
     );
-    expect(input('Live request headers').value).toBe('');
+    expect(kvText('Header')).toBe('');
     expect(screen.getByTestId('try-it-derivation-notes').textContent).toContain('X-Count');
   });
 
@@ -299,7 +354,7 @@ describe('LiveResponseWidget request derivation', () => {
     await renderWidget(
       JSON.stringify({ httpRequest: { path: '/api/users', headers: { 'X-Note': [value] } } }),
     );
-    expect(input('Live request headers').value).toBe(`X-Note: ${value}`);
+    expect(kvText('Header')).toBe(`X-Note: ${value}`);
     expect(screen.queryByTestId('try-it-derivation-notes')).toBeNull();
   });
 
@@ -315,7 +370,7 @@ describe('LiveResponseWidget request derivation', () => {
       }),
     );
     // The optional marker alone is stripped; the negation behind it is honoured.
-    expect(input('Live request headers').value).toBe('X-Optional: yes');
+    expect(kvText('Header')).toBe('X-Optional: yes');
     expect(screen.getByTestId('try-it-derivation-notes').textContent).toContain('?!X-Forbidden');
   });
 
@@ -329,8 +384,8 @@ describe('LiveResponseWidget request derivation', () => {
         },
       }),
     );
-    expect(input('Live request headers').value).toBe('X-Tag: a\nX-Tag: b');
-    expect(input('Live request query').value).toBe('tag=one\ntag=two');
+    expect(kvText('Header')).toBe('X-Tag: a\nX-Tag: b');
+    expect(kvText('Query')).toBe('tag=one\ntag=two');
     expect(screen.queryByTestId('try-it-derivation-notes')).toBeNull();
   });
 
@@ -338,7 +393,7 @@ describe('LiveResponseWidget request derivation', () => {
     await renderWidget(
       JSON.stringify({ httpRequest: { path: '/api/users', headers: { 'X-Tag': ['a', '[0-9]+'] } } }),
     );
-    expect(input('Live request headers').value).toBe('X-Tag: a');
+    expect(kvText('Header')).toBe('X-Tag: a');
     expect(screen.getByTestId('try-it-derivation-notes').textContent).toContain('X-Tag (some values)');
   });
 
@@ -351,13 +406,13 @@ describe('LiveResponseWidget request derivation', () => {
         },
       }),
     );
-    expect(input('Live request headers').value).toBe('');
+    expect(kvText('Header')).toBe('');
     expect(screen.getByTestId('try-it-derivation-notes').textContent).toContain('non-string key');
   });
 
   it('treats a !-prefixed plain string body as negated, not as a literal body', async () => {
     await renderWidget(JSON.stringify({ httpRequest: { path: '/api/users', body: '!secret' } }));
-    expect(input('Live request body').value).toBe('');
+    expect(bodyField().value).toBe('');
     expect(screen.getByTestId('try-it-derivation-notes').textContent).toContain('negated body matcher');
   });
 
@@ -367,7 +422,7 @@ describe('LiveResponseWidget request derivation', () => {
     ['XML', { type: 'XML', xml: '<a/>' }, '<a/>'],
   ])('derives a literal body from a %s body matcher', async (_label, body, expected) => {
     await renderWidget(JSON.stringify({ httpRequest: { path: '/api/users', body } }));
-    expect(input('Live request body').value).toBe(expected);
+    expect(bodyField().value).toBe(expected);
   });
 
   it.each([
@@ -377,7 +432,7 @@ describe('LiveResponseWidget request derivation', () => {
     ['REGEX', { type: 'REGEX', regex: '.*' }],
   ])('never sends a %s body matcher as a literal body', async (label, body) => {
     await renderWidget(JSON.stringify({ httpRequest: { path: '/api/users', body } }));
-    expect(input('Live request body').value).toBe('');
+    expect(bodyField().value).toBe('');
     const notes = screen.getByTestId('try-it-derivation-notes').textContent ?? '';
     expect(notes).toContain('body');
     expect(notes).toContain(label);
@@ -447,7 +502,7 @@ describe('LiveResponseWidget sending', () => {
     await renderWidget(JSON.stringify({ httpRequest: { method: 'GET', path: '/api/.*' } }));
 
     fireEvent.change(input('Live request path'), { target: { value: '/api/users' } });
-    fireEvent.change(input('Live request headers'), { target: { value: 'X-Trace: 123' } });
+    setHeaderField('X-Trace: 123');
     fireEvent.click(sendButton());
 
     await waitFor(() => expect(screen.getByTestId('try-it-result')).toBeInTheDocument());
@@ -456,6 +511,17 @@ describe('LiveResponseWidget sending', () => {
     ) as [string, RequestInit];
     expect(url).toBe(`${window.location.origin}/api/users`);
     expect(new Headers(init.headers).get('X-Trace')).toBe('123');
+    expect(init.redirect).toBe('manual');
+  });
+
+  it('treats an opaque redirect as a successful forward, not a connection failure', async () => {
+    stubFetch({ live: { type: 'opaqueredirect', status: 0, statusText: '', ok: false } });
+    await renderWidget(JSON.stringify({ httpRequest: { method: 'GET', path: '/health' } }));
+
+    fireEvent.click(sendButton());
+    await waitFor(() => expect(screen.getByTestId('try-it-result')).toBeInTheDocument());
+    expect(screen.getByTestId('try-it-opaque-redirect')).toHaveTextContent('upstream answered with a redirect');
+    expect(screen.queryByTestId('try-it-failure')).not.toBeInTheDocument();
   });
 
   it('does not attach a body to a GET request', async () => {
@@ -521,7 +587,7 @@ describe('LiveResponseWidget cross-origin / failure handling', () => {
     const fetchMock = stubFetch({});
     await renderWidget(JSON.stringify({ httpRequest: { path: '/api/users' } }));
 
-    fireEvent.change(input('Live request headers'), { target: { value: 'Bad Header Name: x' } });
+    setHeaderField('Bad Header Name: x');
     fireEvent.click(sendButton());
 
     const failure = await screen.findByTestId('try-it-failure');
@@ -544,7 +610,7 @@ describe('LiveResponseWidget cross-origin / failure handling', () => {
     const fetchMock = stubFetch({});
     await renderWidget(JSON.stringify({ httpRequest: { path: '/api/users' } }));
 
-    fireEvent.change(input('Live request headers'), { target: { value: 'Host: example.com' } });
+    setHeaderField('Host: example.com');
     fireEvent.click(sendButton());
 
     const failure = await screen.findByTestId('try-it-failure');
