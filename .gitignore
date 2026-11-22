@@ -233,3 +233,7 @@ examples/go/callback/callback
 # JVM heap dumps (e.g. from the LLM-capture launcher's -XX:+HeapDumpOnOutOfMemoryError) #
 ########################################################################################
 *.hprof
+
+# VS Code local workspace settings #
+####################################
+.vscode/
